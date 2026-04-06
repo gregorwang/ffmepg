@@ -1,0 +1,14 @@
+bin/
+obj/
+dist/
+.tmp-covercheck/
+scratch/
+*.log
+build_*.txt
+build_output.txt
+build_out.txt
+build.log
+last_log.txt
+nav_check.txt
+tab_search.txt
+boundaries.txt

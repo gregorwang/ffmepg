@@ -1,0 +1,3 @@
+N:/build/Debug-NMake/CMakeFiles/AnimeMediaCore.dir
+N:/build/Debug-NMake/CMakeFiles/edit_cache.dir
+N:/build/Debug-NMake/CMakeFiles/rebuild_cache.dir
