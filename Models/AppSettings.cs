@@ -17,6 +17,14 @@ public sealed class AppSettings : ObservableObject
     private bool _preferStereoAudio = true;
     private bool _enableFaststart = true;
     private int _outputSafetyMarginMb = 2048;
+    private string _subtitleSourceMode = SubtitleSourceModes.Embedded;
+    private string _danmakuMappingPath = string.Empty;
+    private string _danmakuFontName = "Microsoft YaHei";
+    private int _danmakuFontSize = 46;
+    private double _danmakuDensity = 0.65;
+    private double _danmakuTimeOffsetSeconds;
+    private string _danmakuBlockKeywords = string.Empty;
+    private bool _danmakuFilterSpecialTypes = true;
 
     public string InputDirectory
     {
@@ -108,6 +116,54 @@ public sealed class AppSettings : ObservableObject
         set => SetProperty(ref _outputSafetyMarginMb, value);
     }
 
+    public string SubtitleSourceMode
+    {
+        get => _subtitleSourceMode;
+        set => SetProperty(ref _subtitleSourceMode, value);
+    }
+
+    public string DanmakuMappingPath
+    {
+        get => _danmakuMappingPath;
+        set => SetProperty(ref _danmakuMappingPath, value);
+    }
+
+    public string DanmakuFontName
+    {
+        get => _danmakuFontName;
+        set => SetProperty(ref _danmakuFontName, value);
+    }
+
+    public int DanmakuFontSize
+    {
+        get => _danmakuFontSize;
+        set => SetProperty(ref _danmakuFontSize, value);
+    }
+
+    public double DanmakuDensity
+    {
+        get => _danmakuDensity;
+        set => SetProperty(ref _danmakuDensity, value);
+    }
+
+    public double DanmakuTimeOffsetSeconds
+    {
+        get => _danmakuTimeOffsetSeconds;
+        set => SetProperty(ref _danmakuTimeOffsetSeconds, value);
+    }
+
+    public string DanmakuBlockKeywords
+    {
+        get => _danmakuBlockKeywords;
+        set => SetProperty(ref _danmakuBlockKeywords, value);
+    }
+
+    public bool DanmakuFilterSpecialTypes
+    {
+        get => _danmakuFilterSpecialTypes;
+        set => SetProperty(ref _danmakuFilterSpecialTypes, value);
+    }
+
     public static AppSettings CreateDefault(string workspaceRoot)
     {
         return new AppSettings
@@ -126,7 +182,15 @@ public sealed class AppSettings : ObservableObject
             AudioBitrateKbps = 192,
             PreferStereoAudio = true,
             EnableFaststart = true,
-            OutputSafetyMarginMb = 2048
+            OutputSafetyMarginMb = 2048,
+            SubtitleSourceMode = SubtitleSourceModes.Embedded,
+            DanmakuMappingPath = Path.Combine(workspaceRoot, "Config", "anime-danmaku-mappings.json"),
+            DanmakuFontName = "Microsoft YaHei",
+            DanmakuFontSize = 46,
+            DanmakuDensity = 0.65,
+            DanmakuTimeOffsetSeconds = 0,
+            DanmakuBlockKeywords = string.Empty,
+            DanmakuFilterSpecialTypes = true
         };
     }
 }

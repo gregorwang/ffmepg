@@ -12,7 +12,7 @@ public sealed class UserDialogService
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Filter = "MKV Files (*.mkv)|*.mkv|All Files (*.*)|*.*",
+            Filter = "Video Files (*.mkv;*.mp4;*.mov;*.m4v;*.avi;*.ts;*.m2ts;*.webm)|*.mkv;*.mp4;*.mov;*.m4v;*.avi;*.ts;*.m2ts;*.webm|All Files (*.*)|*.*",
             Multiselect = true,
             CheckFileExists = true
         };

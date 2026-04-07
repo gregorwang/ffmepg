@@ -25,7 +25,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly AudioExtractionService _audioExtractionService;
     private readonly VideoClipService _videoClipService;
     private readonly DouyinExportService _douyinExportService;
-    private readonly string[] _supportedInputExtensions = [".mkv"];
+    private readonly DanmakuPreparationService _danmakuPreparationService;
+    private readonly DanmakuBurnCommandBuilder _danmakuBurnCommandBuilder;
+    private readonly string[] _supportedInputExtensions = [".mkv", ".mp4", ".mov", ".m4v", ".avi", ".ts", ".m2ts", ".webm"];
     private CancellationTokenSource? _runCancellationTokenSource;
     private CancellationTokenSource? _audioExtractionCancellationTokenSource;
     private CancellationTokenSource? _clipCancellationTokenSource;
@@ -137,7 +139,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         FrameInspectionService frameInspectionService,
         AudioExtractionService audioExtractionService,
         VideoClipService videoClipService,
-        DouyinExportService douyinExportService)
+        DouyinExportService douyinExportService,
+        DanmakuPreparationService danmakuPreparationService,
+        DanmakuBurnCommandBuilder danmakuBurnCommandBuilder)
     {
         _settingsService = settingsService;
         _taskHistoryService = taskHistoryService;
@@ -154,6 +158,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _audioExtractionService = audioExtractionService;
         _videoClipService = videoClipService;
         _douyinExportService = douyinExportService;
+        _danmakuPreparationService = danmakuPreparationService;
+        _danmakuBurnCommandBuilder = danmakuBurnCommandBuilder;
         _settings = AppSettings.CreateDefault(ToolPathResolver.ResolveWorkspaceRoot());
 
         Jobs.CollectionChanged += OnJobsCollectionChanged;
@@ -3370,45 +3376,93 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 job.SourceDurationSeconds = probe.Duration.TotalSeconds;
                 AppendLog(probe.Message);
 
-                var nativeAnalysis = await _nativeMediaCoreService.AnalyzeSubtitlesAsync(
-                    job.InputPath,
-                    probe.SubtitleTracks,
-                    cancellationToken);
-
-                var subtitleTracks = nativeAnalysis.SubtitleTracks;
-                job.SubtitleAnalysisSource = nativeAnalysis.Source;
-                job.SubtitleKindSummary = _subtitleSelectionService.BuildSubtitleKindSummary(subtitleTracks);
-                AppendLog(nativeAnalysis.Message);
-
-                job.SubtitleStreamOrdinal = _subtitleSelectionService.SelectSubtitleTrackOrdinal(
-                    subtitleTracks,
-                    Settings.SubtitlePreference);
-
-                if (job.SubtitleStreamOrdinal is null)
-                {
-                    job.Status = JobStatus.Failed;
-                    job.Message = "未找到可用字幕轨";
-                    AppendLog($"处理失败 {job.FileName}：未找到可用字幕轨。");
-                    await RecordHistoryAsync(job);
-                    RaiseQueueSummaryProperties();
-                    continue;
-                }
-
                 var videoEncoder = _hardwareDetectionService.ResolveVideoEncoder(Settings.VideoEncoderMode, _isNvencAvailable);
                 job.EncoderUsed = videoEncoder;
                 job.Status = JobStatus.Running;
-                job.Message = "正在转码";
-                AppendLog(
-                    $"开始处理 {job.FileName}，编码器：{videoEncoder}，字幕序号：{job.SubtitleStreamOrdinal}，字幕分析：{job.SubtitleAnalysisSource}，" +
-                    $"音频策略：{(Settings.PreferStereoAudio ? "AAC 立体声" : "AAC 多声道")}，faststart：{(Settings.EnableFaststart ? "开启" : "关闭")}。");
+                TranscodeResult result;
 
-                var result = await _ffmpegRunner.RunAsync(
-                    job,
-                    Settings,
-                    videoEncoder,
-                    (progress, speed) => UpdateProgress(job, progress, speed),
-                    AppendLog,
-                    cancellationToken);
+                if (UseBilibiliDanmakuMode())
+                {
+                    job.Message = "正在准备弹幕";
+                    var preparation = await _danmakuPreparationService.PrepareAsync(
+                        job.InputPath,
+                        Settings,
+                        AppendLog,
+                        cancellationToken);
+
+                    job.SubtitleAnalysisSource = preparation.Source;
+                    job.SubtitleKindSummary = preparation.KindSummary;
+                    job.SubtitleStreamOrdinal = null;
+
+                    if (!preparation.Success)
+                    {
+                        job.Status = JobStatus.Failed;
+                        job.Message = $"弹幕{preparation.FailedStage}失败：{preparation.ErrorMessage}";
+                        AppendLog($"处理失败 {job.FileName}：弹幕{preparation.FailedStage}失败 | {preparation.ErrorMessage}");
+                        await RecordHistoryAsync(job);
+                        RaiseQueueSummaryProperties();
+                        continue;
+                    }
+
+                    job.Message = "正在烧录弹幕";
+                    AppendLog($"弹幕准备完成：{preparation.Summary}");
+                    AppendLog(
+                        $"开始处理 {job.FileName}，编码器：{videoEncoder}，弹幕模式：Bilibili XML，音频策略：{(Settings.PreferStereoAudio ? "AAC 立体声" : "AAC 多声道")}，" +
+                        $"faststart：{(Settings.EnableFaststart ? "开启" : "关闭")}。");
+
+                    var arguments = _danmakuBurnCommandBuilder.BuildArguments(
+                        job.InputPath,
+                        job.OutputPath,
+                        preparation.AssPath,
+                        Settings,
+                        videoEncoder);
+
+                    result = await _ffmpegRunner.RunAsync(
+                        arguments,
+                        job.SourceDurationSeconds,
+                        (progress, speed) => UpdateProgress(job, progress, speed),
+                        AppendLog,
+                        cancellationToken);
+                }
+                else
+                {
+                    var nativeAnalysis = await _nativeMediaCoreService.AnalyzeSubtitlesAsync(
+                        job.InputPath,
+                        probe.SubtitleTracks,
+                        cancellationToken);
+
+                    var subtitleTracks = nativeAnalysis.SubtitleTracks;
+                    job.SubtitleAnalysisSource = nativeAnalysis.Source;
+                    job.SubtitleKindSummary = _subtitleSelectionService.BuildSubtitleKindSummary(subtitleTracks);
+                    AppendLog(nativeAnalysis.Message);
+
+                    job.SubtitleStreamOrdinal = _subtitleSelectionService.SelectSubtitleTrackOrdinal(
+                        subtitleTracks,
+                        Settings.SubtitlePreference);
+
+                    if (job.SubtitleStreamOrdinal is null)
+                    {
+                        job.Status = JobStatus.Failed;
+                        job.Message = "未找到可用字幕轨";
+                        AppendLog($"处理失败 {job.FileName}：未找到可用字幕轨。");
+                        await RecordHistoryAsync(job);
+                        RaiseQueueSummaryProperties();
+                        continue;
+                    }
+
+                    job.Message = "正在转码";
+                    AppendLog(
+                        $"开始处理 {job.FileName}，编码器：{videoEncoder}，字幕序号：{job.SubtitleStreamOrdinal}，字幕分析：{job.SubtitleAnalysisSource}，" +
+                        $"音频策略：{(Settings.PreferStereoAudio ? "AAC 立体声" : "AAC 多声道")}，faststart：{(Settings.EnableFaststart ? "开启" : "关闭")}。");
+
+                    result = await _ffmpegRunner.RunAsync(
+                        job,
+                        Settings,
+                        videoEncoder,
+                        (progress, speed) => UpdateProgress(job, progress, speed),
+                        AppendLog,
+                        cancellationToken);
+                }
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -3674,9 +3728,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RefreshDouyinOutputPathPreview();
     }
 
+    private bool UseBilibiliDanmakuMode()
+    {
+        return string.Equals(Settings.SubtitleSourceMode, SubtitleSourceModes.BilibiliDanmaku, StringComparison.OrdinalIgnoreCase);
+    }
+
     private string BuildOutputPath(string inputPath)
     {
-        return Path.Combine(Settings.OutputDirectory, $"{Path.GetFileNameWithoutExtension(inputPath)}.mp4");
+        var suffix = UseBilibiliDanmakuMode() ? "-danmaku" : string.Empty;
+        return Path.Combine(Settings.OutputDirectory, $"{Path.GetFileNameWithoutExtension(inputPath)}{suffix}.mp4");
     }
 
     private void RefreshAudioOutputPathPreview()
@@ -4816,7 +4876,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             UpdateDirectoryWatcher();
         }
 
-        if (e.PropertyName == nameof(AppSettings.OutputDirectory))
+        if (e.PropertyName is nameof(AppSettings.OutputDirectory) or nameof(AppSettings.SubtitleSourceMode))
         {
             RecalculateOutputPaths();
             RaisePropertyChanged(nameof(AudioOutputDirectoryPath));

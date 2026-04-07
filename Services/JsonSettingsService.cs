@@ -48,6 +48,12 @@ public sealed class JsonSettingsService
         settings.AudioBitrateKbps = settings.AudioBitrateKbps <= 0 ? defaults.AudioBitrateKbps : settings.AudioBitrateKbps;
         settings.StableFileWaitSeconds = settings.StableFileWaitSeconds <= 0 ? defaults.StableFileWaitSeconds : settings.StableFileWaitSeconds;
         settings.OutputSafetyMarginMb = settings.OutputSafetyMarginMb <= 0 ? defaults.OutputSafetyMarginMb : settings.OutputSafetyMarginMb;
+        settings.SubtitleSourceMode = string.IsNullOrWhiteSpace(settings.SubtitleSourceMode) ? defaults.SubtitleSourceMode : settings.SubtitleSourceMode;
+        settings.DanmakuMappingPath = string.IsNullOrWhiteSpace(settings.DanmakuMappingPath) ? defaults.DanmakuMappingPath : settings.DanmakuMappingPath;
+        settings.DanmakuFontName = string.IsNullOrWhiteSpace(settings.DanmakuFontName) ? defaults.DanmakuFontName : settings.DanmakuFontName;
+        settings.DanmakuFontSize = settings.DanmakuFontSize <= 0 ? defaults.DanmakuFontSize : settings.DanmakuFontSize;
+        settings.DanmakuDensity = settings.DanmakuDensity <= 0 || settings.DanmakuDensity > 1 ? defaults.DanmakuDensity : settings.DanmakuDensity;
+        settings.DanmakuBlockKeywords ??= defaults.DanmakuBlockKeywords;
 
         if (!root.TryGetProperty(nameof(AppSettings.EnableDirectoryWatch), out _))
         {
@@ -67,6 +73,11 @@ public sealed class JsonSettingsService
         if (!root.TryGetProperty(nameof(AppSettings.EnableFaststart), out _))
         {
             settings.EnableFaststart = defaults.EnableFaststart;
+        }
+
+        if (!root.TryGetProperty(nameof(AppSettings.DanmakuFilterSpecialTypes), out _))
+        {
+            settings.DanmakuFilterSpecialTypes = defaults.DanmakuFilterSpecialTypes;
         }
 
         return settings;

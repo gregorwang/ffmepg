@@ -10,12 +10,15 @@ public partial class MainWindow : System.Windows.Window
     {
         InitializeComponent();
 
+        var ffmpegCommandBuilder = new FfmpegCommandBuilder();
         var ffprobeService = new FfprobeService();
         var taskHistoryService = new TaskHistoryService();
         var nativeMediaCoreService = new NativeMediaCoreService();
         var directoryWatchService = new DirectoryWatchService();
-        var ffmpegRunner = new FfmpegRunner(new FfmpegCommandBuilder());
+        var ffmpegRunner = new FfmpegRunner(ffmpegCommandBuilder);
         var storagePreflightService = new StoragePreflightService();
+        var danmakuCacheService = new DanmakuCacheService();
+        var bilibiliBangumiClient = new BilibiliBangumiClient(danmakuCacheService);
         DataContext = new MainViewModel(
             new JsonSettingsService(),
             taskHistoryService,
@@ -31,7 +34,15 @@ public partial class MainWindow : System.Windows.Window
             new FrameInspectionService(),
             new AudioExtractionService(ffmpegRunner, new AudioCommandBuilder()),
             new VideoClipService(ffmpegRunner, new ClipCommandBuilder()),
-            new DouyinExportService(ffmpegRunner, new DouyinCommandBuilder()));
+            new DouyinExportService(ffmpegRunner, new DouyinCommandBuilder()),
+            new DanmakuPreparationService(
+                new AnimeEpisodeParserService(),
+                new DanmakuMappingConfigService(),
+                new BangumiMappingService(bilibiliBangumiClient),
+                new BilibiliCidResolverService(),
+                new DanmakuXmlService(danmakuCacheService),
+                new DanmakuAssGeneratorService(danmakuCacheService)),
+            new DanmakuBurnCommandBuilder(ffmpegCommandBuilder));
 
         if (DataContext is MainViewModel viewModel)
         {

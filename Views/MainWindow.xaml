@@ -340,6 +340,57 @@
                             </Grid>
                         </GroupBox>
 
+                        <GroupBox Header="🛰️ 弹幕配置" Margin="0,0,0,16">
+                            <Grid Margin="12">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="130" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="130" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="字幕来源" />
+                                <ComboBox Grid.Row="0" Grid.Column="1" Margin="8,0,16,8"
+                                          SelectedValue="{Binding Settings.SubtitleSourceMode}"
+                                          SelectedValuePath="Tag">
+                                    <ComboBoxItem Tag="embedded">内嵌字幕</ComboBoxItem>
+                                    <ComboBoxItem Tag="bilibili_danmaku">Bilibili XML 弹幕</ComboBoxItem>
+                                </ComboBox>
+                                <TextBlock Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" Text="映射配置" />
+                                <TextBox Grid.Row="0" Grid.Column="3" Margin="8,0,0,8"
+                                         Text="{Binding Settings.DanmakuMappingPath, UpdateSourceTrigger=PropertyChanged}" />
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="字体名称" />
+                                <TextBox Grid.Row="1" Grid.Column="1" Margin="8,0,16,8"
+                                         Text="{Binding Settings.DanmakuFontName, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" Text="字号" />
+                                <TextBox Grid.Row="1" Grid.Column="3" Margin="8,0,0,8"
+                                         Text="{Binding Settings.DanmakuFontSize, UpdateSourceTrigger=PropertyChanged}" />
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="密度" />
+                                <TextBox Grid.Row="2" Grid.Column="1" Margin="8,0,16,8"
+                                         Text="{Binding Settings.DanmakuDensity, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" Text="时间偏移(秒)" />
+                                <TextBox Grid.Row="2" Grid.Column="3" Margin="8,0,0,8"
+                                         Text="{Binding Settings.DanmakuTimeOffsetSeconds, UpdateSourceTrigger=PropertyChanged}" />
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,4,0,0" VerticalAlignment="Top" Text="屏蔽词" />
+                                <TextBox Grid.Row="3" Grid.Column="1" Margin="8,0,16,0" Height="68"
+                                         AcceptsReturn="True"
+                                         VerticalScrollBarVisibility="Auto"
+                                         Text="{Binding Settings.DanmakuBlockKeywords, UpdateSourceTrigger=PropertyChanged}" />
+                                <CheckBox Grid.Row="3" Grid.Column="2" Grid.ColumnSpan="2" Margin="8,4,0,0"
+                                          IsChecked="{Binding Settings.DanmakuFilterSpecialTypes}"
+                                          Content="过滤特殊弹幕（mode 7/8）" />
+                            </Grid>
+                        </GroupBox>
+
                         <!-- 统计卡片 + 拖拽投放区 -->
                         <Grid Margin="0,0,0,16">
                             <Grid.ColumnDefinitions>

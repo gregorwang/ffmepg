@@ -11,6 +11,36 @@ public sealed class FfmpegCommandBuilder
             throw new InvalidOperationException("Subtitle stream ordinal must be set before building ffmpeg arguments.");
         }
 
+        return BuildArgumentsCore(
+            job.InputPath,
+            job.OutputPath,
+            $"subtitles='{ConvertToFilterPath(job.InputPath)}':si={job.SubtitleStreamOrdinal.Value}",
+            settings,
+            videoEncoder);
+    }
+
+    public IReadOnlyList<string> BuildExternalAssArguments(
+        string inputPath,
+        string outputPath,
+        string assPath,
+        AppSettings settings,
+        string videoEncoder)
+    {
+        return BuildArgumentsCore(
+            inputPath,
+            outputPath,
+            $"ass='{ConvertToFilterPath(assPath)}'",
+            settings,
+            videoEncoder);
+    }
+
+    private static IReadOnlyList<string> BuildArgumentsCore(
+        string inputPath,
+        string outputPath,
+        string videoFilter,
+        AppSettings settings,
+        string videoEncoder)
+    {
         var args = new List<string>
         {
             "-y",
@@ -27,9 +57,9 @@ public sealed class FfmpegCommandBuilder
         }
 
         args.Add("-i");
-        args.Add(job.InputPath);
+        args.Add(inputPath);
         args.Add("-vf");
-        args.Add($"subtitles='{ConvertToSubtitleFilterPath(job.InputPath)}':si={job.SubtitleStreamOrdinal.Value}");
+        args.Add(videoFilter);
         args.Add("-map");
         args.Add("0:v:0");
         args.Add("-map");
@@ -78,12 +108,12 @@ public sealed class FfmpegCommandBuilder
         }
 
         args.Add("-sn");
-        args.Add(job.OutputPath);
+        args.Add(outputPath);
 
         return args;
     }
 
-    private static string ConvertToSubtitleFilterPath(string path)
+    private static string ConvertToFilterPath(string path)
     {
         var value = path.Replace('\\', '/');
         value = value.Replace(":", "\\:");
