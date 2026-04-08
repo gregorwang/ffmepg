@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Globalization;
 using System.Windows.Input;
+using System.Windows.Data;
 using AnimeTranscoder.Infrastructure;
 using AnimeTranscoder.Models;
 using AnimeTranscoder.Services;
@@ -27,6 +29,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly DouyinExportService _douyinExportService;
     private readonly DanmakuPreparationService _danmakuPreparationService;
     private readonly DanmakuBurnCommandBuilder _danmakuBurnCommandBuilder;
+    private readonly DanmakuAssGeneratorService _danmakuAssGeneratorService;
+    private readonly DanmakuExclusionRuleService _danmakuExclusionRuleService;
+    private readonly OverlayFramePreviewService _overlayFramePreviewService;
     private readonly string[] _supportedInputExtensions = [".mkv", ".mp4", ".mov", ".m4v", ".avi", ".ts", ".m2ts", ".webm"];
     private CancellationTokenSource? _runCancellationTokenSource;
     private CancellationTokenSource? _audioExtractionCancellationTokenSource;
@@ -48,6 +53,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _inspectionOutputDirectory = string.Empty;
     private string _inspectionSource = string.Empty;
     private InspectionReportResult? _inspectionReport;
+    private string _selectedPreviewTimeText = "5.0";
+    private string _selectedPreviewImagePath = string.Empty;
+    private string _selectedPreviewSummary = "尚未生成叠加预览";
+    private string _selectedDanmakuAnalysisSummary = "尚未分析当前任务的弹幕";
+    private string _danmakuSearchText = string.Empty;
+    private string _danmakuKeywordBatchText = string.Empty;
+    private string _selectedDanmakuModeFilter = "all";
+    private bool _suppressDanmakuToggleSync;
     private string _audioInputPath = string.Empty;
     private string _audioMixBackgroundPath = string.Empty;
     private string _audioProbeSummary = "请选择媒体文件以分析音轨";
@@ -141,7 +154,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         VideoClipService videoClipService,
         DouyinExportService douyinExportService,
         DanmakuPreparationService danmakuPreparationService,
-        DanmakuBurnCommandBuilder danmakuBurnCommandBuilder)
+        DanmakuBurnCommandBuilder danmakuBurnCommandBuilder,
+        DanmakuAssGeneratorService danmakuAssGeneratorService,
+        DanmakuExclusionRuleService danmakuExclusionRuleService,
+        OverlayFramePreviewService overlayFramePreviewService)
     {
         _settingsService = settingsService;
         _taskHistoryService = taskHistoryService;
@@ -160,7 +176,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _douyinExportService = douyinExportService;
         _danmakuPreparationService = danmakuPreparationService;
         _danmakuBurnCommandBuilder = danmakuBurnCommandBuilder;
+        _danmakuAssGeneratorService = danmakuAssGeneratorService;
+        _danmakuExclusionRuleService = danmakuExclusionRuleService;
+        _overlayFramePreviewService = overlayFramePreviewService;
         _settings = AppSettings.CreateDefault(ToolPathResolver.ResolveWorkspaceRoot());
+        EditableSelectedDanmakuCommentsView = CollectionViewSource.GetDefaultView(EditableSelectedDanmakuComments);
+        EditableSelectedDanmakuCommentsView.Filter = FilterEditableDanmakuComment;
 
         Jobs.CollectionChanged += OnJobsCollectionChanged;
         InspectionSamples.CollectionChanged += OnInspectionSamplesCollectionChanged;
@@ -174,6 +195,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         UseSelectedJobAsAudioInputCommand = new AsyncRelayCommand(UseSelectedJobAsAudioInputAsync, () => !IsRunning && !IsAudioExtracting && !IsAudioSilenceDetecting && !IsClipRunning && !IsDouyinExporting && SelectedJob is not null && File.Exists(SelectedJob.InputPath));
         ChooseClipInputCommand = new AsyncRelayCommand(ChooseClipInputAsync, () => !IsRunning && !IsAudioExtracting && !IsAudioSilenceDetecting && !IsClipRunning && !IsDouyinExporting);
         UseSelectedJobAsClipInputCommand = new AsyncRelayCommand(UseSelectedJobAsClipInputAsync, () => !IsRunning && !IsAudioExtracting && !IsAudioSilenceDetecting && !IsClipRunning && !IsDouyinExporting && SelectedJob is not null && File.Exists(SelectedJob.InputPath));
+        ChooseSelectedJobDanmakuCommand = new RelayCommand(_ => ChooseSelectedJobDanmaku(), _ => SelectedJob is not null && !IsRunning);
+        ClearSelectedJobDanmakuCommand = new RelayCommand(_ => ClearSelectedJobDanmaku(), _ => SelectedJob is not null && !string.IsNullOrWhiteSpace(SelectedJob.DanmakuInputPath) && !IsRunning);
+        OpenSelectedDanmakuCommand = new RelayCommand(_ => OpenSelectedDanmaku(), _ => SelectedJob is not null && File.Exists(SelectedJob.DanmakuInputPath));
+        OpenGeneratedDanmakuAssCommand = new RelayCommand(_ => OpenGeneratedDanmakuAss(), _ => SelectedJob is not null && File.Exists(SelectedJob.DanmakuAssPath));
+        AnalyzeSelectedDanmakuCommand = new AsyncRelayCommand(AnalyzeSelectedDanmakuAsync, () => SelectedJob is not null && File.Exists(SelectedJob.InputPath) && !IsRunning);
+        ClearSelectedDanmakuExclusionsCommand = new RelayCommand(_ => ClearSelectedDanmakuExclusions(), _ => SelectedJob is not null && !string.IsNullOrWhiteSpace(SelectedJob.DanmakuExcludedCommentKeys) && !IsRunning);
+        ImportSelectedDanmakuRulesCommand = new AsyncRelayCommand(ImportSelectedDanmakuRulesAsync, () => SelectedJob is not null && !IsRunning);
+        ExportSelectedDanmakuRulesCommand = new AsyncRelayCommand(ExportSelectedDanmakuRulesAsync, () => SelectedJob is not null && !IsRunning);
+        DisableFilteredDanmakuCommand = new RelayCommand(_ => SetFilteredDanmakuEnabled(false), _ => HasEditableSelectedDanmakuComments && !IsRunning);
+        EnableFilteredDanmakuCommand = new RelayCommand(_ => SetFilteredDanmakuEnabled(true), _ => HasEditableSelectedDanmakuComments && !IsRunning);
+        DisableDanmakuByKeywordsCommand = new RelayCommand(_ => SetKeywordMatchedDanmakuEnabled(false), _ => HasEditableSelectedDanmakuComments && !IsRunning);
+        EnableDanmakuByKeywordsCommand = new RelayCommand(_ => SetKeywordMatchedDanmakuEnabled(true), _ => HasEditableSelectedDanmakuComments && !IsRunning);
+        RefreshSelectedPreviewCommand = new AsyncRelayCommand(RefreshSelectedPreviewAsync, () => SelectedJob is not null && File.Exists(SelectedJob.InputPath) && !IsRunning);
         RemoveSelectedCommand = new RelayCommand(_ => RemoveSelectedJob(), _ => SelectedJob is not null && !IsRunning);
         RetryFailedJobsCommand = new RelayCommand(_ => RetryFailedJobs(), _ => !IsRunning && Jobs.Any(job => job.Status is JobStatus.Failed or JobStatus.Cancelled));
         ClearFinishedJobsCommand = new RelayCommand(_ => ClearFinishedJobs(), _ => !IsRunning && Jobs.Any(job => job.Status is JobStatus.Success or JobStatus.Skipped or JobStatus.Cancelled));
@@ -252,6 +286,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<VideoAnalysisSegment> FreezeSegments { get; } = [];
 
+    public ObservableCollection<DanmakuComment> SelectedDanmakuComments { get; } = [];
+    public ObservableCollection<EditableDanmakuComment> EditableSelectedDanmakuComments { get; } = [];
+    public ICollectionView EditableSelectedDanmakuCommentsView { get; }
+
     public AppSettings Settings
     {
         get => _settings;
@@ -320,6 +358,82 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public string SelectedJobProgressText => SelectedJob is null ? "0%" : $"{SelectedJob.Progress:F0}%";
 
+    public string SelectedJobDanmakuSource => string.IsNullOrWhiteSpace(SelectedJob?.DanmakuSourceSummary) ? "未配置" : SelectedJob!.DanmakuSourceSummary;
+
+    public string SelectedJobDanmakuInputPath => string.IsNullOrWhiteSpace(SelectedJob?.DanmakuInputPath) ? "未绑定" : SelectedJob!.DanmakuInputPath;
+
+    public string SelectedPreviewTimeText
+    {
+        get => _selectedPreviewTimeText;
+        set => SetProperty(ref _selectedPreviewTimeText, value);
+    }
+
+    public string SelectedPreviewImagePath
+    {
+        get => _selectedPreviewImagePath;
+        private set => SetProperty(ref _selectedPreviewImagePath, value);
+    }
+
+    public string SelectedPreviewSummary
+    {
+        get => _selectedPreviewSummary;
+        private set => SetProperty(ref _selectedPreviewSummary, value);
+    }
+
+    public string SelectedDanmakuAnalysisSummary
+    {
+        get => _selectedDanmakuAnalysisSummary;
+        private set => SetProperty(ref _selectedDanmakuAnalysisSummary, value);
+    }
+
+    public string DanmakuSearchText
+    {
+        get => _danmakuSearchText;
+        set
+        {
+            if (SetProperty(ref _danmakuSearchText, value))
+            {
+                EditableSelectedDanmakuCommentsView.Refresh();
+                RaisePropertyChanged(nameof(FilteredDanmakuCountSummary));
+            }
+        }
+    }
+
+    public string DanmakuKeywordBatchText
+    {
+        get => _danmakuKeywordBatchText;
+        set => SetProperty(ref _danmakuKeywordBatchText, value);
+    }
+
+    public string SelectedDanmakuModeFilter
+    {
+        get => _selectedDanmakuModeFilter;
+        set
+        {
+            if (SetProperty(ref _selectedDanmakuModeFilter, value))
+            {
+                EditableSelectedDanmakuCommentsView.Refresh();
+                RaisePropertyChanged(nameof(FilteredDanmakuCountSummary));
+            }
+        }
+    }
+
+    public string SelectedJobDanmakuPreparation => string.IsNullOrWhiteSpace(SelectedJob?.DanmakuPreparationSummary) ? "未分析" : SelectedJob!.DanmakuPreparationSummary;
+
+    public string SelectedJobDanmakuXmlStats => SelectedJob is null || SelectedJob.DanmakuXmlCommentCount <= 0
+        ? "未分析"
+        : $"{SelectedJob.DanmakuXmlCommentCount} -> {SelectedJob.DanmakuKeptCommentCount}";
+
+    public string SelectedJobDanmakuAssPath => string.IsNullOrWhiteSpace(SelectedJob?.DanmakuAssPath) ? "未生成" : SelectedJob!.DanmakuAssPath;
+
+    public bool HasSelectedDanmakuComments => SelectedDanmakuComments.Count > 0;
+
+    public bool HasEditableSelectedDanmakuComments => EditableSelectedDanmakuComments.Count > 0;
+
+    public int SelectedDanmakuDisabledCount => EditableSelectedDanmakuComments.Count(comment => !comment.IsEnabled);
+
+    public string FilteredDanmakuCountSummary => $"{EditableSelectedDanmakuCommentsView.Cast<object>().Count()} / {EditableSelectedDanmakuComments.Count} 条匹配当前筛选";
+
     public bool HasInspectionSamples => InspectionSamples.Count > 0;
 
     public string InspectionSummary => _inspectionSummary;
@@ -363,6 +477,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _selectedJob, value))
             {
+                SelectedPreviewImagePath = string.Empty;
+                SelectedPreviewTimeText = value is null
+                    ? "5.0"
+                    : DetermineFrameSampleTimeSeconds(value).ToString("0.###", CultureInfo.InvariantCulture);
+                SelectedPreviewSummary = value is null
+                    ? "尚未生成叠加预览"
+                    : "请点击刷新预览查看当前字幕/弹幕叠加效果";
+                SelectedDanmakuAnalysisSummary = value is null
+                    ? "尚未分析当前任务的弹幕"
+                    : string.IsNullOrWhiteSpace(value.DanmakuPreparationSummary)
+                        ? "请先点击重新分析弹幕"
+                        : value.DanmakuPreparationSummary;
+                DanmakuSearchText = string.Empty;
+                DanmakuKeywordBatchText = string.Empty;
+                SelectedDanmakuModeFilter = "all";
+                LoadSelectedDanmakuCommentsFromJob(value);
                 RaiseSelectedJobProperties();
                 NotifyCommandStateChanged();
             }
@@ -1048,6 +1178,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand UseSelectedJobAsAudioInputCommand { get; }
     public ICommand ChooseClipInputCommand { get; }
     public ICommand UseSelectedJobAsClipInputCommand { get; }
+    public ICommand ChooseSelectedJobDanmakuCommand { get; }
+    public ICommand ClearSelectedJobDanmakuCommand { get; }
+    public ICommand OpenSelectedDanmakuCommand { get; }
+    public ICommand OpenGeneratedDanmakuAssCommand { get; }
+    public ICommand AnalyzeSelectedDanmakuCommand { get; }
+    public ICommand ClearSelectedDanmakuExclusionsCommand { get; }
+    public ICommand ImportSelectedDanmakuRulesCommand { get; }
+    public ICommand ExportSelectedDanmakuRulesCommand { get; }
+    public ICommand DisableFilteredDanmakuCommand { get; }
+    public ICommand EnableFilteredDanmakuCommand { get; }
+    public ICommand DisableDanmakuByKeywordsCommand { get; }
+    public ICommand EnableDanmakuByKeywordsCommand { get; }
+    public ICommand RefreshSelectedPreviewCommand { get; }
     public ICommand RemoveSelectedCommand { get; }
     public ICommand RetryFailedJobsCommand { get; }
     public ICommand ClearFinishedJobsCommand { get; }
@@ -1272,6 +1415,301 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             await LoadClipSourceAsync(SelectedJob.InputPath, "当前选中任务");
         }
+    }
+
+    private void ChooseSelectedJobDanmaku()
+    {
+        if (SelectedJob is null)
+        {
+            return;
+        }
+
+        var initialDirectory = File.Exists(SelectedJob.DanmakuInputPath)
+            ? Path.GetDirectoryName(SelectedJob.DanmakuInputPath)
+            : Path.GetDirectoryName(SelectedJob.InputPath);
+        var path = _userDialogService.PickDanmakuFile(initialDirectory);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        SelectedJob.DanmakuInputPath = path;
+        SelectedJob.DanmakuSourceSummary = $"已绑定本地弹幕 | {Path.GetFileName(path)}";
+        SelectedJob.DanmakuPreparationSummary = "本地弹幕已变更，请刷新预览";
+        SelectedJob.DanmakuXmlPath = string.Empty;
+        SelectedJob.DanmakuAssPath = string.Empty;
+        SelectedJob.DanmakuXmlCommentCount = 0;
+        SelectedJob.DanmakuKeptCommentCount = 0;
+        SelectedJob.DanmakuExcludedCommentKeys = string.Empty;
+        SelectedDanmakuComments.Clear();
+        EditableSelectedDanmakuComments.Clear();
+        RaisePropertyChanged(nameof(HasSelectedDanmakuComments));
+        RaisePropertyChanged(nameof(HasEditableSelectedDanmakuComments));
+        RaisePropertyChanged(nameof(SelectedDanmakuDisabledCount));
+        SelectedPreviewImagePath = string.Empty;
+        SelectedPreviewSummary = "本地弹幕已变更，请刷新叠加预览";
+        SelectedDanmakuAnalysisSummary = "本地弹幕已变更，请重新分析";
+        DanmakuSearchText = string.Empty;
+        DanmakuKeywordBatchText = string.Empty;
+        SelectedDanmakuModeFilter = "all";
+        NotifyCommandStateChanged();
+    }
+
+    private void ClearSelectedJobDanmaku()
+    {
+        if (SelectedJob is null)
+        {
+            return;
+        }
+
+        SelectedJob.DanmakuInputPath = string.Empty;
+        SelectedJob.DanmakuSourceSummary = string.Empty;
+        SelectedJob.DanmakuPreparationSummary = string.Empty;
+        SelectedJob.DanmakuXmlPath = string.Empty;
+        SelectedJob.DanmakuAssPath = string.Empty;
+        SelectedJob.DanmakuXmlCommentCount = 0;
+        SelectedJob.DanmakuKeptCommentCount = 0;
+        SelectedJob.DanmakuExcludedCommentKeys = string.Empty;
+        SelectedDanmakuComments.Clear();
+        EditableSelectedDanmakuComments.Clear();
+        RaisePropertyChanged(nameof(HasSelectedDanmakuComments));
+        RaisePropertyChanged(nameof(HasEditableSelectedDanmakuComments));
+        RaisePropertyChanged(nameof(SelectedDanmakuDisabledCount));
+        SelectedPreviewImagePath = string.Empty;
+        SelectedPreviewSummary = "已清空本地弹幕绑定";
+        SelectedDanmakuAnalysisSummary = "已清空当前任务的弹幕分析";
+        DanmakuSearchText = string.Empty;
+        DanmakuKeywordBatchText = string.Empty;
+        SelectedDanmakuModeFilter = "all";
+        NotifyCommandStateChanged();
+    }
+
+    private void OpenSelectedDanmaku()
+    {
+        if (SelectedJob is not null && File.Exists(SelectedJob.DanmakuInputPath))
+        {
+            _userDialogService.OpenFile(SelectedJob.DanmakuInputPath);
+        }
+    }
+
+    private void OpenGeneratedDanmakuAss()
+    {
+        if (SelectedJob is not null && File.Exists(SelectedJob.DanmakuAssPath))
+        {
+            _userDialogService.OpenFile(SelectedJob.DanmakuAssPath);
+        }
+    }
+
+    private async Task AnalyzeSelectedDanmakuAsync()
+    {
+        if (SelectedJob is null || !File.Exists(SelectedJob.InputPath))
+        {
+            return;
+        }
+
+        var probe = await _nativeMediaCoreService.ProbeMediaAsync(SelectedJob.InputPath, CancellationToken.None)
+            ?? await _ffprobeService.ProbeAsync(SelectedJob.InputPath, CancellationToken.None);
+
+        if (probe is null)
+        {
+            SelectedDanmakuAnalysisSummary = "媒体分析失败，无法分析弹幕";
+            StatusMessage = "弹幕分析失败";
+            return;
+        }
+
+        SelectedJob.SourceDurationSeconds = probe.Duration.TotalSeconds;
+        SelectedDanmakuAnalysisSummary = "正在重新分析当前任务的弹幕";
+        StatusMessage = "正在分析弹幕";
+
+        var overlay = await PrepareOverlayAssetsAsync(SelectedJob, probe, CancellationToken.None);
+        if (!overlay.Success)
+        {
+            SelectedDanmakuAnalysisSummary = overlay.ErrorMessage;
+            StatusMessage = "弹幕分析失败";
+            return;
+        }
+
+        ApplyOverlayStateToJob(SelectedJob, overlay);
+        await RefreshSelectedDanmakuAnalysisAsync(SelectedJob, overlay);
+        SelectedPreviewSummary = "弹幕分析已更新，可继续刷新叠加预览";
+        SelectedPreviewImagePath = string.Empty;
+        StatusMessage = "弹幕分析已更新";
+        NotifyCommandStateChanged();
+    }
+
+    private void ClearSelectedDanmakuExclusions()
+    {
+        if (SelectedJob is null)
+        {
+            return;
+        }
+
+        SelectedJob.DanmakuExcludedCommentKeys = string.Empty;
+        foreach (var comment in EditableSelectedDanmakuComments)
+        {
+            comment.IsEnabled = true;
+        }
+
+        SelectedPreviewImagePath = string.Empty;
+        SelectedPreviewSummary = "已清空手动禁用弹幕，请重新分析或刷新预览";
+        SelectedDanmakuAnalysisSummary = "已清空手动禁用弹幕，请重新分析以查看最新统计。";
+        RaisePropertyChanged(nameof(SelectedDanmakuDisabledCount));
+        NotifyCommandStateChanged();
+    }
+
+    private async Task ImportSelectedDanmakuRulesAsync()
+    {
+        if (SelectedJob is null)
+        {
+            return;
+        }
+
+        var initialDirectory = File.Exists(SelectedJob.DanmakuInputPath)
+            ? Path.GetDirectoryName(SelectedJob.DanmakuInputPath)
+            : Settings.OutputDirectory;
+        var path = _userDialogService.PickFile(
+            "导入弹幕禁用规则",
+            "规则文件 (*.json;*.txt)|*.json;*.txt|JSON 文件 (*.json)|*.json|文本文件 (*.txt)|*.txt|所有文件 (*.*)|*.*",
+            initialDirectory);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        var excludedCommentKeys = await _danmakuExclusionRuleService.ImportAsync(path);
+        SelectedJob.DanmakuExcludedCommentKeys = string.Join(Environment.NewLine, excludedCommentKeys.OrderBy(key => key, StringComparer.Ordinal));
+        SelectedPreviewImagePath = string.Empty;
+        SelectedPreviewSummary = "已导入禁用规则，请重新分析或刷新预览";
+        SelectedDanmakuAnalysisSummary = $"已导入 {excludedCommentKeys.Count} 条手动禁用规则。";
+        AppendLog($"已导入弹幕禁用规则：{path} | 条数：{excludedCommentKeys.Count}");
+
+        if (!string.IsNullOrWhiteSpace(SelectedJob.DanmakuXmlPath) && File.Exists(SelectedJob.DanmakuXmlPath))
+        {
+            await AnalyzeSelectedDanmakuAsync();
+        }
+        else
+        {
+            NotifyCommandStateChanged();
+        }
+    }
+
+    private async Task ExportSelectedDanmakuRulesAsync()
+    {
+        if (SelectedJob is null)
+        {
+            return;
+        }
+
+        var excludedCommentKeys = ParseExcludedCommentKeys(SelectedJob)
+            .OrderBy(key => key, StringComparer.Ordinal)
+            .ToList();
+        var defaultExtension = ".json";
+        var defaultName = $"{Path.GetFileNameWithoutExtension(SelectedJob.InputPath)}-danmaku-rules{defaultExtension}";
+        var savePath = _userDialogService.PickSaveFile(
+            "导出弹幕禁用规则",
+            "JSON 文件 (*.json)|*.json|文本文件 (*.txt)|*.txt",
+            defaultName,
+            Settings.OutputDirectory);
+        if (string.IsNullOrWhiteSpace(savePath))
+        {
+            return;
+        }
+
+        await _danmakuExclusionRuleService.ExportAsync(savePath, SelectedJob, excludedCommentKeys);
+        StatusMessage = $"弹幕禁用规则已导出：{savePath}";
+        AppendLog($"已导出弹幕禁用规则：{savePath} | 条数：{excludedCommentKeys.Count}");
+    }
+
+    private void SetFilteredDanmakuEnabled(bool isEnabled)
+    {
+        if (SelectedJob is null)
+        {
+            return;
+        }
+
+        var visibleComments = EditableSelectedDanmakuCommentsView
+            .Cast<object>()
+            .OfType<EditableDanmakuComment>()
+            .ToList();
+
+        if (visibleComments.Count == 0)
+        {
+            return;
+        }
+
+        _suppressDanmakuToggleSync = true;
+        try
+        {
+            foreach (var comment in visibleComments)
+            {
+                comment.IsEnabled = isEnabled;
+            }
+        }
+        finally
+        {
+            _suppressDanmakuToggleSync = false;
+        }
+
+        var excludedCommentKeys = EditableSelectedDanmakuComments
+            .Where(comment => !comment.IsEnabled)
+            .Select(comment => comment.Key)
+            .OrderBy(key => key, StringComparer.Ordinal)
+            .ToList();
+        SelectedJob.DanmakuExcludedCommentKeys = string.Join(Environment.NewLine, excludedCommentKeys);
+        SelectedPreviewImagePath = string.Empty;
+        SelectedPreviewSummary = "批量禁用列表已更新，请重新分析或刷新预览";
+        SelectedDanmakuAnalysisSummary = isEnabled
+            ? $"已恢复当前筛选命中的 {visibleComments.Count} 条弹幕。"
+            : $"已禁用当前筛选命中的 {visibleComments.Count} 条弹幕。";
+        RaisePropertyChanged(nameof(SelectedDanmakuDisabledCount));
+        RaisePropertyChanged(nameof(FilteredDanmakuCountSummary));
+        NotifyCommandStateChanged();
+    }
+
+    private void SetKeywordMatchedDanmakuEnabled(bool isEnabled)
+    {
+        var keywords = ParseKeywordBatchInput(DanmakuKeywordBatchText);
+        if (SelectedJob is null || keywords.Count == 0)
+        {
+            SelectedDanmakuAnalysisSummary = "请先填写关键词，每行一个或用 | 分隔。";
+            return;
+        }
+
+        var matchedComments = EditableSelectedDanmakuComments
+            .Where(comment => keywords.Any(keyword => comment.Content.Contains(keyword, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        if (matchedComments.Count == 0)
+        {
+            SelectedDanmakuAnalysisSummary = "没有弹幕命中当前关键词。";
+            return;
+        }
+
+        _suppressDanmakuToggleSync = true;
+        try
+        {
+            foreach (var comment in matchedComments)
+            {
+                comment.IsEnabled = isEnabled;
+            }
+        }
+        finally
+        {
+            _suppressDanmakuToggleSync = false;
+        }
+
+        var excludedCommentKeys = EditableSelectedDanmakuComments
+            .Where(comment => !comment.IsEnabled)
+            .Select(comment => comment.Key)
+            .OrderBy(key => key, StringComparer.Ordinal)
+            .ToList();
+        SelectedJob.DanmakuExcludedCommentKeys = string.Join(Environment.NewLine, excludedCommentKeys);
+        SelectedPreviewImagePath = string.Empty;
+        SelectedPreviewSummary = "关键词批量规则已更新，请重新分析或刷新预览";
+        SelectedDanmakuAnalysisSummary = isEnabled
+            ? $"已恢复关键词命中的 {matchedComments.Count} 条弹幕。"
+            : $"已禁用关键词命中的 {matchedComments.Count} 条弹幕。";
+        RaisePropertyChanged(nameof(SelectedDanmakuDisabledCount));
+        NotifyCommandStateChanged();
     }
 
     private void ChoosePipOverlay()
@@ -3324,6 +3762,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 job.Message = "正在读取媒体信息";
                 job.SubtitleAnalysisSource = string.Empty;
                 job.SubtitleKindSummary = string.Empty;
+                job.DanmakuSourceSummary = string.Empty;
+                job.DanmakuPreparationSummary = string.Empty;
+                job.DanmakuXmlPath = string.Empty;
+                job.DanmakuAssPath = string.Empty;
+                job.DanmakuXmlCommentCount = 0;
+                job.DanmakuKeptCommentCount = 0;
 
                 if (!File.Exists(job.InputPath))
                 {
@@ -3379,90 +3823,40 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 var videoEncoder = _hardwareDetectionService.ResolveVideoEncoder(Settings.VideoEncoderMode, _isNvencAvailable);
                 job.EncoderUsed = videoEncoder;
                 job.Status = JobStatus.Running;
-                TranscodeResult result;
-
-                if (UseBilibiliDanmakuMode())
+                job.Message = "正在准备叠加素材";
+                var overlay = await PrepareOverlayAssetsAsync(job, probe, cancellationToken);
+                if (!overlay.Success)
                 {
-                    job.Message = "正在准备弹幕";
-                    var preparation = await _danmakuPreparationService.PrepareAsync(
-                        job.InputPath,
-                        Settings,
-                        AppendLog,
-                        cancellationToken);
-
-                    job.SubtitleAnalysisSource = preparation.Source;
-                    job.SubtitleKindSummary = preparation.KindSummary;
-                    job.SubtitleStreamOrdinal = null;
-
-                    if (!preparation.Success)
-                    {
-                        job.Status = JobStatus.Failed;
-                        job.Message = $"弹幕{preparation.FailedStage}失败：{preparation.ErrorMessage}";
-                        AppendLog($"处理失败 {job.FileName}：弹幕{preparation.FailedStage}失败 | {preparation.ErrorMessage}");
-                        await RecordHistoryAsync(job);
-                        RaiseQueueSummaryProperties();
-                        continue;
-                    }
-
-                    job.Message = "正在烧录弹幕";
-                    AppendLog($"弹幕准备完成：{preparation.Summary}");
-                    AppendLog(
-                        $"开始处理 {job.FileName}，编码器：{videoEncoder}，弹幕模式：Bilibili XML，音频策略：{(Settings.PreferStereoAudio ? "AAC 立体声" : "AAC 多声道")}，" +
-                        $"faststart：{(Settings.EnableFaststart ? "开启" : "关闭")}。");
-
-                    var arguments = _danmakuBurnCommandBuilder.BuildArguments(
-                        job.InputPath,
-                        job.OutputPath,
-                        preparation.AssPath,
-                        Settings,
-                        videoEncoder);
-
-                    result = await _ffmpegRunner.RunAsync(
-                        arguments,
-                        job.SourceDurationSeconds,
-                        (progress, speed) => UpdateProgress(job, progress, speed),
-                        AppendLog,
-                        cancellationToken);
+                    job.Status = JobStatus.Failed;
+                    job.Message = overlay.ErrorMessage;
+                    AppendLog($"处理失败 {job.FileName}：{overlay.ErrorMessage}");
+                    await RecordHistoryAsync(job);
+                    RaiseQueueSummaryProperties();
+                    continue;
                 }
-                else
-                {
-                    var nativeAnalysis = await _nativeMediaCoreService.AnalyzeSubtitlesAsync(
-                        job.InputPath,
-                        probe.SubtitleTracks,
-                        cancellationToken);
 
-                    var subtitleTracks = nativeAnalysis.SubtitleTracks;
-                    job.SubtitleAnalysisSource = nativeAnalysis.Source;
-                    job.SubtitleKindSummary = _subtitleSelectionService.BuildSubtitleKindSummary(subtitleTracks);
-                    AppendLog(nativeAnalysis.Message);
+                ApplyOverlayStateToJob(job, overlay);
 
-                    job.SubtitleStreamOrdinal = _subtitleSelectionService.SelectSubtitleTrackOrdinal(
-                        subtitleTracks,
-                        Settings.SubtitlePreference);
+                var modeSummary = BuildOverlayModeSummary(overlay.SubtitleStreamOrdinal, overlay.DanmakuAssPath);
+                job.Message = $"正在烧录{modeSummary}";
+                AppendLog(
+                    $"开始处理 {job.FileName}，编码器：{videoEncoder}，模式：{modeSummary}，" +
+                    $"音频策略：{(Settings.PreferStereoAudio ? "AAC 立体声" : "AAC 多声道")}，faststart：{(Settings.EnableFaststart ? "开启" : "关闭")}。");
 
-                    if (job.SubtitleStreamOrdinal is null)
-                    {
-                        job.Status = JobStatus.Failed;
-                        job.Message = "未找到可用字幕轨";
-                        AppendLog($"处理失败 {job.FileName}：未找到可用字幕轨。");
-                        await RecordHistoryAsync(job);
-                        RaiseQueueSummaryProperties();
-                        continue;
-                    }
+                var arguments = _danmakuBurnCommandBuilder.BuildArguments(
+                    job.InputPath,
+                    job.OutputPath,
+                    overlay.DanmakuAssPath,
+                    overlay.SubtitleStreamOrdinal,
+                    Settings,
+                    videoEncoder);
 
-                    job.Message = "正在转码";
-                    AppendLog(
-                        $"开始处理 {job.FileName}，编码器：{videoEncoder}，字幕序号：{job.SubtitleStreamOrdinal}，字幕分析：{job.SubtitleAnalysisSource}，" +
-                        $"音频策略：{(Settings.PreferStereoAudio ? "AAC 立体声" : "AAC 多声道")}，faststart：{(Settings.EnableFaststart ? "开启" : "关闭")}。");
-
-                    result = await _ffmpegRunner.RunAsync(
-                        job,
-                        Settings,
-                        videoEncoder,
-                        (progress, speed) => UpdateProgress(job, progress, speed),
-                        AppendLog,
-                        cancellationToken);
-                }
+                var result = await _ffmpegRunner.RunAsync(
+                    arguments,
+                    job.SourceDurationSeconds,
+                    (progress, speed) => UpdateProgress(job, progress, speed),
+                    AppendLog,
+                    cancellationToken);
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -3527,6 +3921,374 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             StatusMessage = "队列处理结束";
             NotifyQueueCompleted(queueWasCancelled);
         }
+    }
+
+    private async Task RefreshSelectedPreviewAsync()
+    {
+        if (SelectedJob is null || !File.Exists(SelectedJob.InputPath))
+        {
+            return;
+        }
+
+        if (!TryParsePreviewTimeSeconds(SelectedJob, out var previewTimeSeconds, out var parseMessage))
+        {
+            SelectedPreviewSummary = parseMessage;
+            StatusMessage = "叠加预览参数无效";
+            return;
+        }
+
+        SelectedPreviewSummary = "正在生成叠加预览";
+        StatusMessage = "正在生成叠加预览";
+
+        var probe = await _nativeMediaCoreService.ProbeMediaAsync(SelectedJob.InputPath, CancellationToken.None)
+            ?? await _ffprobeService.ProbeAsync(SelectedJob.InputPath, CancellationToken.None);
+
+        if (probe is null)
+        {
+            SelectedPreviewSummary = "媒体分析失败，无法生成预览";
+            StatusMessage = "叠加预览失败";
+            return;
+        }
+
+        SelectedJob.SourceDurationSeconds = probe.Duration.TotalSeconds;
+        var overlay = await PrepareOverlayAssetsAsync(SelectedJob, probe, CancellationToken.None);
+        if (!overlay.Success)
+        {
+            SelectedPreviewSummary = overlay.ErrorMessage;
+            StatusMessage = "叠加预览失败";
+            return;
+        }
+
+        ApplyOverlayStateToJob(SelectedJob, overlay);
+        await RefreshSelectedDanmakuAnalysisAsync(SelectedJob, overlay);
+
+        var preview = await _overlayFramePreviewService.GenerateAsync(
+            SelectedJob.InputPath,
+            previewTimeSeconds,
+            overlay.SubtitleStreamOrdinal,
+            overlay.DanmakuAssPath,
+            CancellationToken.None);
+
+        if (!preview.Success)
+        {
+            SelectedPreviewSummary = $"预览生成失败：{preview.Message}";
+            StatusMessage = "叠加预览失败";
+            AppendLog($"叠加预览失败：{preview.Message}");
+            return;
+        }
+
+        SelectedPreviewImagePath = preview.OutputPath;
+        SelectedPreviewSummary = $"预览时间 {previewTimeSeconds:0.###}s | {BuildOverlayModeSummary(overlay.SubtitleStreamOrdinal, overlay.DanmakuAssPath)}";
+        StatusMessage = "叠加预览已更新";
+        AppendLog($"叠加预览已更新：{preview.OutputPath}");
+    }
+
+    private void ApplyOverlayStateToJob(TranscodeJob job, OverlayPreparationState overlay)
+    {
+        job.SubtitleStreamOrdinal = overlay.SubtitleStreamOrdinal;
+        job.SubtitleAnalysisSource = overlay.SubtitleAnalysisSource;
+        job.SubtitleKindSummary = overlay.SubtitleKindSummary;
+        job.DanmakuSourceSummary = overlay.DanmakuSourceSummary;
+        job.DanmakuPreparationSummary = overlay.DanmakuPreparationSummary;
+        job.DanmakuXmlPath = overlay.DanmakuXmlPath;
+        job.DanmakuAssPath = overlay.DanmakuAssPath;
+        job.DanmakuXmlCommentCount = overlay.DanmakuXmlCommentCount;
+        job.DanmakuKeptCommentCount = overlay.DanmakuKeptCommentCount;
+    }
+
+    private async Task RefreshSelectedDanmakuAnalysisAsync(TranscodeJob job, OverlayPreparationState overlay)
+    {
+        if (!ReferenceEquals(job, SelectedJob))
+        {
+            return;
+        }
+
+        var excludedCommentKeys = ParseExcludedCommentKeys(job);
+        if (!string.IsNullOrWhiteSpace(overlay.DanmakuXmlPath) && File.Exists(overlay.DanmakuXmlPath))
+        {
+            var snapshot = await _danmakuAssGeneratorService.AnalyzeXmlFileAsync(
+                overlay.DanmakuXmlPath,
+                Settings,
+                excludedCommentKeys,
+                cancellationToken: CancellationToken.None);
+
+            job.DanmakuXmlCommentCount = snapshot.XmlCommentCount;
+            job.DanmakuKeptCommentCount = snapshot.KeptCommentCount;
+            SelectedDanmakuComments.Clear();
+            foreach (var comment in snapshot.Comments)
+            {
+                SelectedDanmakuComments.Add(comment);
+            }
+            RebuildEditableDanmakuComments(snapshot.Comments, excludedCommentKeys);
+
+            SelectedDanmakuAnalysisSummary = $"当前过滤后保留 {snapshot.KeptCommentCount} / {snapshot.XmlCommentCount} 条。手动禁用 {SelectedDanmakuDisabledCount} 条。";
+        }
+        else
+        {
+            SelectedDanmakuComments.Clear();
+            foreach (var existingComment in EditableSelectedDanmakuComments)
+            {
+                existingComment.PropertyChanged -= EditableDanmakuCommentOnPropertyChanged;
+            }
+            EditableSelectedDanmakuComments.Clear();
+            SelectedDanmakuAnalysisSummary = string.IsNullOrWhiteSpace(overlay.DanmakuAssPath)
+                ? "当前任务未启用弹幕。"
+                : "当前弹幕来源为 ASS 直通，暂不支持逐条过滤分析。";
+        }
+
+        RaiseSelectedJobProperties();
+        RaisePropertyChanged(nameof(HasSelectedDanmakuComments));
+        RaisePropertyChanged(nameof(HasEditableSelectedDanmakuComments));
+        RaisePropertyChanged(nameof(SelectedDanmakuDisabledCount));
+        RaisePropertyChanged(nameof(FilteredDanmakuCountSummary));
+        RaisePropertyChanged(nameof(SelectedDanmakuAnalysisSummary));
+    }
+
+    private void LoadSelectedDanmakuCommentsFromJob(TranscodeJob? job)
+    {
+        SelectedDanmakuComments.Clear();
+        foreach (var existingComment in EditableSelectedDanmakuComments)
+        {
+            existingComment.PropertyChanged -= EditableDanmakuCommentOnPropertyChanged;
+        }
+        EditableSelectedDanmakuComments.Clear();
+        if (job is null)
+        {
+            RaisePropertyChanged(nameof(HasSelectedDanmakuComments));
+            RaisePropertyChanged(nameof(HasEditableSelectedDanmakuComments));
+            RaisePropertyChanged(nameof(SelectedDanmakuDisabledCount));
+            RaisePropertyChanged(nameof(FilteredDanmakuCountSummary));
+            return;
+        }
+
+        RaisePropertyChanged(nameof(HasSelectedDanmakuComments));
+        RaisePropertyChanged(nameof(HasEditableSelectedDanmakuComments));
+        RaisePropertyChanged(nameof(SelectedDanmakuDisabledCount));
+        RaisePropertyChanged(nameof(FilteredDanmakuCountSummary));
+    }
+
+    private void RebuildEditableDanmakuComments(IEnumerable<DanmakuComment> comments, IReadOnlySet<string> excludedCommentKeys)
+    {
+        foreach (var existingComment in EditableSelectedDanmakuComments)
+        {
+            existingComment.PropertyChanged -= EditableDanmakuCommentOnPropertyChanged;
+        }
+
+        EditableSelectedDanmakuComments.Clear();
+        foreach (var comment in comments)
+        {
+            var editableComment = new EditableDanmakuComment
+            {
+                Key = comment.Key,
+                TimeSeconds = comment.TimeSeconds,
+                Mode = comment.Mode,
+                Content = comment.Content,
+                IsEnabled = !excludedCommentKeys.Contains(comment.Key)
+            };
+            editableComment.PropertyChanged += EditableDanmakuCommentOnPropertyChanged;
+            EditableSelectedDanmakuComments.Add(editableComment);
+        }
+    }
+
+    private void EditableDanmakuCommentOnPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (_suppressDanmakuToggleSync ||
+            e.PropertyName != nameof(EditableDanmakuComment.IsEnabled) ||
+            sender is not EditableDanmakuComment editableComment ||
+            SelectedJob is null)
+        {
+            return;
+        }
+
+        var excludedCommentKeys = ParseExcludedCommentKeys(SelectedJob);
+        if (editableComment.IsEnabled)
+        {
+            excludedCommentKeys.Remove(editableComment.Key);
+        }
+        else
+        {
+            excludedCommentKeys.Add(editableComment.Key);
+        }
+
+        SelectedJob.DanmakuExcludedCommentKeys = string.Join(Environment.NewLine, excludedCommentKeys.OrderBy(key => key, StringComparer.Ordinal));
+        SelectedPreviewImagePath = string.Empty;
+        SelectedPreviewSummary = "手动禁用列表已更新，请重新分析或刷新预览";
+        SelectedDanmakuAnalysisSummary = $"当前样例里已手动禁用 {SelectedDanmakuDisabledCount} 条，重新分析后会更新最终统计。";
+        RaisePropertyChanged(nameof(SelectedDanmakuDisabledCount));
+        RaisePropertyChanged(nameof(FilteredDanmakuCountSummary));
+        NotifyCommandStateChanged();
+    }
+
+    private bool FilterEditableDanmakuComment(object item)
+    {
+        if (item is not EditableDanmakuComment comment)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(DanmakuSearchText) &&
+            !comment.Content.Contains(DanmakuSearchText, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return SelectedDanmakuModeFilter switch
+        {
+            "scroll" => comment.Mode is 1 or 6,
+            "top" => comment.Mode == 5,
+            "bottom" => comment.Mode == 4,
+            _ => true
+        };
+    }
+
+    private static HashSet<string> ParseExcludedCommentKeys(TranscodeJob job)
+    {
+        return job.DanmakuExcludedCommentKeys
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    private static HashSet<string> ParseKeywordBatchInput(string raw)
+    {
+        return raw
+            .Split(['|', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(keyword => !string.IsNullOrWhiteSpace(keyword))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private async Task<OverlayPreparationState> PrepareOverlayAssetsAsync(
+        TranscodeJob job,
+        MediaProbeResult probe,
+        CancellationToken cancellationToken)
+    {
+        int? subtitleStreamOrdinal = null;
+        var analysisParts = new List<string>();
+        var summaryParts = new List<string>();
+        var danmakuSourceSummary = Settings.EnableDanmaku ? "弹幕准备中" : "弹幕已关闭";
+        var danmakuPreparationSummary = Settings.EnableDanmaku ? "弹幕准备中" : "弹幕已关闭";
+        string danmakuAssPath = string.Empty;
+        string danmakuXmlPath = string.Empty;
+        var danmakuXmlCommentCount = 0;
+        var danmakuKeptCommentCount = 0;
+
+        if (Settings.BurnEmbeddedSubtitles)
+        {
+            var nativeAnalysis = await _nativeMediaCoreService.AnalyzeSubtitlesAsync(
+                job.InputPath,
+                probe.SubtitleTracks,
+                cancellationToken);
+
+            var subtitleTracks = nativeAnalysis.SubtitleTracks;
+            analysisParts.Add(nativeAnalysis.Source);
+            AppendLog(nativeAnalysis.Message);
+
+            var subtitleKindSummary = _subtitleSelectionService.BuildSubtitleKindSummary(subtitleTracks);
+            subtitleStreamOrdinal = _subtitleSelectionService.SelectSubtitleTrackOrdinal(
+                subtitleTracks,
+                Settings.SubtitlePreference);
+
+            if (subtitleStreamOrdinal is null)
+            {
+                if (!Settings.EnableDanmaku)
+                {
+                    return OverlayPreparationState.Fail("未找到可用字幕轨");
+                }
+
+                summaryParts.Add($"{subtitleKindSummary} | 已回退为仅弹幕");
+            }
+            else
+            {
+                summaryParts.Add($"内嵌字幕轨 #{subtitleStreamOrdinal.Value} | {subtitleKindSummary}");
+            }
+        }
+        else
+        {
+            analysisParts.Add("embedded-disabled");
+            summaryParts.Add("内嵌字幕已关闭");
+        }
+
+        if (Settings.EnableDanmaku)
+        {
+            var preparation = await _danmakuPreparationService.PrepareAsync(job, Settings, AppendLog, cancellationToken);
+            if (!preparation.Success)
+            {
+                return OverlayPreparationState.Fail($"弹幕{preparation.FailedStage}失败：{preparation.ErrorMessage}");
+            }
+
+            danmakuAssPath = preparation.AssPath;
+            danmakuXmlPath = preparation.XmlPath;
+            danmakuXmlCommentCount = preparation.XmlCommentCount;
+            danmakuKeptCommentCount = preparation.AssCommentCount;
+            danmakuSourceSummary = BuildDanmakuSourceSummary(preparation);
+            danmakuPreparationSummary = preparation.Summary;
+            analysisParts.Add(preparation.Source);
+            summaryParts.Add(preparation.KindSummary);
+        }
+
+        if (subtitleStreamOrdinal is null && string.IsNullOrWhiteSpace(danmakuAssPath))
+        {
+            return OverlayPreparationState.Fail("当前没有可烧录的字幕或弹幕");
+        }
+
+        return OverlayPreparationState.SuccessState(
+            subtitleStreamOrdinal,
+            danmakuAssPath,
+            danmakuXmlPath,
+            danmakuXmlCommentCount,
+            danmakuKeptCommentCount,
+            string.Join(" + ", analysisParts.Where(part => !string.IsNullOrWhiteSpace(part))),
+            string.Join(" | ", summaryParts.Where(part => !string.IsNullOrWhiteSpace(part))),
+            danmakuSourceSummary,
+            danmakuPreparationSummary);
+    }
+
+    private static string BuildOverlayModeSummary(int? subtitleStreamOrdinal, string? danmakuAssPath)
+    {
+        var hasSubtitle = subtitleStreamOrdinal is not null;
+        var hasDanmaku = !string.IsNullOrWhiteSpace(danmakuAssPath);
+
+        return (hasSubtitle, hasDanmaku) switch
+        {
+            (true, true) => "字幕 + 弹幕",
+            (true, false) => "字幕",
+            (false, true) => "弹幕",
+            _ => "原始画面"
+        };
+    }
+
+    private static string BuildDanmakuSourceSummary(DanmakuPreparationResult preparation)
+    {
+        return preparation.Source switch
+        {
+            "local-ass" => "本地 ASS",
+            "local-xml" => "本地 XML",
+            "bilibili-danmaku" => "Bilibili XML",
+            _ => preparation.Source
+        };
+    }
+
+    private bool TryParsePreviewTimeSeconds(TranscodeJob job, out double previewTimeSeconds, out string errorMessage)
+    {
+        if (!double.TryParse(SelectedPreviewTimeText, NumberStyles.Float, CultureInfo.InvariantCulture, out previewTimeSeconds) &&
+            !double.TryParse(SelectedPreviewTimeText, NumberStyles.Float, CultureInfo.CurrentCulture, out previewTimeSeconds))
+        {
+            errorMessage = "预览时间无效，请填写秒数";
+            return false;
+        }
+
+        if (previewTimeSeconds < 0)
+        {
+            errorMessage = "预览时间不能小于 0";
+            return false;
+        }
+
+        if (job.SourceDurationSeconds > 0)
+        {
+            previewTimeSeconds = Math.Min(previewTimeSeconds, Math.Max(job.SourceDurationSeconds - 0.1, 0));
+        }
+
+        errorMessage = string.Empty;
+        return true;
     }
 
     private void Cancel()
@@ -3728,14 +4490,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RefreshDouyinOutputPathPreview();
     }
 
-    private bool UseBilibiliDanmakuMode()
-    {
-        return string.Equals(Settings.SubtitleSourceMode, SubtitleSourceModes.BilibiliDanmaku, StringComparison.OrdinalIgnoreCase);
-    }
-
     private string BuildOutputPath(string inputPath)
     {
-        var suffix = UseBilibiliDanmakuMode() ? "-danmaku" : string.Empty;
+        var suffix = Settings.EnableDanmaku ? "-danmaku" : string.Empty;
         return Path.Combine(Settings.OutputDirectory, $"{Path.GetFileNameWithoutExtension(inputPath)}{suffix}.mp4");
     }
 
@@ -4493,6 +5250,71 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             useSelectedJobAsClipInput.NotifyCanExecuteChanged();
         }
 
+        if (ChooseSelectedJobDanmakuCommand is RelayCommand chooseSelectedJobDanmaku)
+        {
+            chooseSelectedJobDanmaku.NotifyCanExecuteChanged();
+        }
+
+        if (ClearSelectedJobDanmakuCommand is RelayCommand clearSelectedJobDanmaku)
+        {
+            clearSelectedJobDanmaku.NotifyCanExecuteChanged();
+        }
+
+        if (OpenSelectedDanmakuCommand is RelayCommand openSelectedDanmaku)
+        {
+            openSelectedDanmaku.NotifyCanExecuteChanged();
+        }
+
+        if (OpenGeneratedDanmakuAssCommand is RelayCommand openGeneratedDanmakuAss)
+        {
+            openGeneratedDanmakuAss.NotifyCanExecuteChanged();
+        }
+
+        if (AnalyzeSelectedDanmakuCommand is AsyncRelayCommand analyzeSelectedDanmaku)
+        {
+            analyzeSelectedDanmaku.NotifyCanExecuteChanged();
+        }
+
+        if (ClearSelectedDanmakuExclusionsCommand is RelayCommand clearSelectedDanmakuExclusions)
+        {
+            clearSelectedDanmakuExclusions.NotifyCanExecuteChanged();
+        }
+
+        if (ImportSelectedDanmakuRulesCommand is AsyncRelayCommand importSelectedDanmakuRules)
+        {
+            importSelectedDanmakuRules.NotifyCanExecuteChanged();
+        }
+
+        if (ExportSelectedDanmakuRulesCommand is AsyncRelayCommand exportSelectedDanmakuRules)
+        {
+            exportSelectedDanmakuRules.NotifyCanExecuteChanged();
+        }
+
+        if (DisableFilteredDanmakuCommand is RelayCommand disableFilteredDanmaku)
+        {
+            disableFilteredDanmaku.NotifyCanExecuteChanged();
+        }
+
+        if (EnableFilteredDanmakuCommand is RelayCommand enableFilteredDanmaku)
+        {
+            enableFilteredDanmaku.NotifyCanExecuteChanged();
+        }
+
+        if (DisableDanmakuByKeywordsCommand is RelayCommand disableDanmakuByKeywords)
+        {
+            disableDanmakuByKeywords.NotifyCanExecuteChanged();
+        }
+
+        if (EnableDanmakuByKeywordsCommand is RelayCommand enableDanmakuByKeywords)
+        {
+            enableDanmakuByKeywords.NotifyCanExecuteChanged();
+        }
+
+        if (RefreshSelectedPreviewCommand is AsyncRelayCommand refreshSelectedPreview)
+        {
+            refreshSelectedPreview.NotifyCanExecuteChanged();
+        }
+
         if (ExtractAudioCommand is AsyncRelayCommand extractAudio)
         {
             extractAudio.NotifyCanExecuteChanged();
@@ -4808,6 +5630,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RaisePropertyChanged(nameof(SelectedJobEncoder));
         RaisePropertyChanged(nameof(SelectedJobSubtitleAnalysis));
         RaisePropertyChanged(nameof(SelectedJobSubtitleKind));
+        RaisePropertyChanged(nameof(SelectedJobDanmakuSource));
+        RaisePropertyChanged(nameof(SelectedJobDanmakuInputPath));
+        RaisePropertyChanged(nameof(SelectedJobDanmakuPreparation));
+        RaisePropertyChanged(nameof(SelectedJobDanmakuXmlStats));
+        RaisePropertyChanged(nameof(SelectedJobDanmakuAssPath));
         RaisePropertyChanged(nameof(SelectedJobProgressText));
     }
 
@@ -4819,6 +5646,56 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RaisePropertyChanged(nameof(InspectionSource));
         RaisePropertyChanged(nameof(InspectionReportHeadline));
         RaisePropertyChanged(nameof(InspectionAttentionSummary));
+    }
+
+    private sealed class OverlayPreparationState
+    {
+        public bool Success { get; init; }
+        public int? SubtitleStreamOrdinal { get; init; }
+        public string DanmakuAssPath { get; init; } = string.Empty;
+        public string DanmakuXmlPath { get; init; } = string.Empty;
+        public int DanmakuXmlCommentCount { get; init; }
+        public int DanmakuKeptCommentCount { get; init; }
+        public string SubtitleAnalysisSource { get; init; } = string.Empty;
+        public string SubtitleKindSummary { get; init; } = string.Empty;
+        public string DanmakuSourceSummary { get; init; } = string.Empty;
+        public string DanmakuPreparationSummary { get; init; } = string.Empty;
+        public string ErrorMessage { get; init; } = string.Empty;
+
+        public static OverlayPreparationState Fail(string errorMessage)
+        {
+            return new OverlayPreparationState
+            {
+                Success = false,
+                ErrorMessage = errorMessage
+            };
+        }
+
+        public static OverlayPreparationState SuccessState(
+            int? subtitleStreamOrdinal,
+            string danmakuAssPath,
+            string danmakuXmlPath,
+            int danmakuXmlCommentCount,
+            int danmakuKeptCommentCount,
+            string subtitleAnalysisSource,
+            string subtitleKindSummary,
+            string danmakuSourceSummary,
+            string danmakuPreparationSummary)
+        {
+            return new OverlayPreparationState
+            {
+                Success = true,
+                SubtitleStreamOrdinal = subtitleStreamOrdinal,
+                DanmakuAssPath = danmakuAssPath,
+                DanmakuXmlPath = danmakuXmlPath,
+                DanmakuXmlCommentCount = danmakuXmlCommentCount,
+                DanmakuKeptCommentCount = danmakuKeptCommentCount,
+                SubtitleAnalysisSource = subtitleAnalysisSource,
+                SubtitleKindSummary = subtitleKindSummary,
+                DanmakuSourceSummary = danmakuSourceSummary,
+                DanmakuPreparationSummary = danmakuPreparationSummary
+            };
+        }
     }
 
     private static double DetermineFrameSampleTimeSeconds(TranscodeJob job)
@@ -4876,7 +5753,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             UpdateDirectoryWatcher();
         }
 
-        if (e.PropertyName is nameof(AppSettings.OutputDirectory) or nameof(AppSettings.SubtitleSourceMode))
+        if (e.PropertyName is nameof(AppSettings.OutputDirectory) or nameof(AppSettings.EnableDanmaku))
         {
             RecalculateOutputPaths();
             RaisePropertyChanged(nameof(AudioOutputDirectoryPath));
@@ -4888,6 +5765,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             RaisePropertyChanged(nameof(PipOutputDirectoryPath));
             RaisePropertyChanged(nameof(VideoFxOutputDirectoryPath));
             RaisePropertyChanged(nameof(DouyinOutputDirectoryPath));
+        }
+
+        if (e.PropertyName is nameof(AppSettings.BurnEmbeddedSubtitles) or
+            nameof(AppSettings.EnableDanmaku) or
+            nameof(AppSettings.DanmakuSourceMode) or
+            nameof(AppSettings.DanmakuAreaMode) or
+            nameof(AppSettings.DanmakuFontName) or
+            nameof(AppSettings.DanmakuFontSize) or
+            nameof(AppSettings.DanmakuDensity) or
+            nameof(AppSettings.DanmakuTimeOffsetSeconds) or
+            nameof(AppSettings.DanmakuBlockKeywords) or
+            nameof(AppSettings.DanmakuFilterSpecialTypes))
+        {
+            SelectedPreviewImagePath = string.Empty;
+            SelectedPreviewSummary = "配置已变更，请刷新叠加预览";
         }
 
         if (e.PropertyName == nameof(AppSettings.VideoEncoderMode) || e.PropertyName == nameof(AppSettings.Cq))

@@ -16,8 +16,11 @@ public partial class MainWindow : System.Windows.Window
         var nativeMediaCoreService = new NativeMediaCoreService();
         var directoryWatchService = new DirectoryWatchService();
         var ffmpegRunner = new FfmpegRunner(ffmpegCommandBuilder);
+        var overlayFramePreviewService = new OverlayFramePreviewService(ffmpegCommandBuilder);
         var storagePreflightService = new StoragePreflightService();
         var danmakuCacheService = new DanmakuCacheService();
+        var danmakuAssGeneratorService = new DanmakuAssGeneratorService(danmakuCacheService);
+        var danmakuExclusionRuleService = new DanmakuExclusionRuleService();
         var bilibiliBangumiClient = new BilibiliBangumiClient(danmakuCacheService);
         DataContext = new MainViewModel(
             new JsonSettingsService(),
@@ -41,8 +44,11 @@ public partial class MainWindow : System.Windows.Window
                 new BangumiMappingService(bilibiliBangumiClient),
                 new BilibiliCidResolverService(),
                 new DanmakuXmlService(danmakuCacheService),
-                new DanmakuAssGeneratorService(danmakuCacheService)),
-            new DanmakuBurnCommandBuilder(ffmpegCommandBuilder));
+                danmakuAssGeneratorService),
+            new DanmakuBurnCommandBuilder(ffmpegCommandBuilder),
+            danmakuAssGeneratorService,
+            danmakuExclusionRuleService,
+            overlayFramePreviewService);
 
         if (DataContext is MainViewModel viewModel)
         {

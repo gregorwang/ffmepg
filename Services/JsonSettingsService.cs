@@ -48,12 +48,19 @@ public sealed class JsonSettingsService
         settings.AudioBitrateKbps = settings.AudioBitrateKbps <= 0 ? defaults.AudioBitrateKbps : settings.AudioBitrateKbps;
         settings.StableFileWaitSeconds = settings.StableFileWaitSeconds <= 0 ? defaults.StableFileWaitSeconds : settings.StableFileWaitSeconds;
         settings.OutputSafetyMarginMb = settings.OutputSafetyMarginMb <= 0 ? defaults.OutputSafetyMarginMb : settings.OutputSafetyMarginMb;
-        settings.SubtitleSourceMode = string.IsNullOrWhiteSpace(settings.SubtitleSourceMode) ? defaults.SubtitleSourceMode : settings.SubtitleSourceMode;
+        settings.BurnEmbeddedSubtitles = root.TryGetProperty(nameof(AppSettings.BurnEmbeddedSubtitles), out _)
+            ? settings.BurnEmbeddedSubtitles
+            : defaults.BurnEmbeddedSubtitles;
+        settings.EnableDanmaku = root.TryGetProperty(nameof(AppSettings.EnableDanmaku), out _)
+            ? settings.EnableDanmaku
+            : defaults.EnableDanmaku;
+        settings.DanmakuSourceMode = string.IsNullOrWhiteSpace(settings.DanmakuSourceMode) ? defaults.DanmakuSourceMode : settings.DanmakuSourceMode;
         settings.DanmakuMappingPath = string.IsNullOrWhiteSpace(settings.DanmakuMappingPath) ? defaults.DanmakuMappingPath : settings.DanmakuMappingPath;
         settings.DanmakuFontName = string.IsNullOrWhiteSpace(settings.DanmakuFontName) ? defaults.DanmakuFontName : settings.DanmakuFontName;
         settings.DanmakuFontSize = settings.DanmakuFontSize <= 0 ? defaults.DanmakuFontSize : settings.DanmakuFontSize;
         settings.DanmakuDensity = settings.DanmakuDensity <= 0 || settings.DanmakuDensity > 1 ? defaults.DanmakuDensity : settings.DanmakuDensity;
         settings.DanmakuBlockKeywords ??= defaults.DanmakuBlockKeywords;
+        settings.DanmakuAreaMode = string.IsNullOrWhiteSpace(settings.DanmakuAreaMode) ? defaults.DanmakuAreaMode : settings.DanmakuAreaMode;
 
         if (!root.TryGetProperty(nameof(AppSettings.EnableDirectoryWatch), out _))
         {
@@ -78,6 +85,22 @@ public sealed class JsonSettingsService
         if (!root.TryGetProperty(nameof(AppSettings.DanmakuFilterSpecialTypes), out _))
         {
             settings.DanmakuFilterSpecialTypes = defaults.DanmakuFilterSpecialTypes;
+        }
+
+        if (!root.TryGetProperty(nameof(AppSettings.BurnEmbeddedSubtitles), out _) &&
+            !root.TryGetProperty(nameof(AppSettings.EnableDanmaku), out _))
+        {
+            if (string.Equals(settings.SubtitleSourceMode, SubtitleSourceModes.BilibiliDanmaku, StringComparison.OrdinalIgnoreCase))
+            {
+                settings.BurnEmbeddedSubtitles = false;
+                settings.EnableDanmaku = true;
+                settings.DanmakuSourceMode = DanmakuSourceModes.BilibiliAuto;
+            }
+            else
+            {
+                settings.BurnEmbeddedSubtitles = true;
+                settings.EnableDanmaku = false;
+            }
         }
 
         return settings;

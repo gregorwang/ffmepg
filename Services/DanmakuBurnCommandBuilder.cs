@@ -15,9 +15,16 @@ public sealed class DanmakuBurnCommandBuilder
         string inputPath,
         string outputPath,
         string assPath,
+        int? subtitleStreamOrdinal,
         AppSettings settings,
         string videoEncoder)
     {
-        return _ffmpegCommandBuilder.BuildExternalAssArguments(inputPath, outputPath, assPath, settings, videoEncoder);
+        return _ffmpegCommandBuilder.BuildArguments(
+            inputPath,
+            outputPath,
+            subtitleStreamOrdinal,
+            assPath,
+            settings,
+            videoEncoder);
     }
 }

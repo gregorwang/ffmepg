@@ -347,6 +347,8 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="130" />
@@ -355,39 +357,56 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
 
-                                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="字幕来源" />
-                                <ComboBox Grid.Row="0" Grid.Column="1" Margin="8,0,16,8"
-                                          SelectedValue="{Binding Settings.SubtitleSourceMode}"
+                                <CheckBox Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,0,16,8"
+                                          IsChecked="{Binding Settings.BurnEmbeddedSubtitles}"
+                                          Content="同时烧录内嵌字幕" />
+                                <CheckBox Grid.Row="0" Grid.Column="2" Grid.ColumnSpan="2" Margin="0,0,0,8"
+                                          IsChecked="{Binding Settings.EnableDanmaku}"
+                                          Content="启用弹幕叠加" />
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="弹幕来源" />
+                                <ComboBox Grid.Row="1" Grid.Column="1" Margin="8,0,16,8"
+                                          SelectedValue="{Binding Settings.DanmakuSourceMode}"
                                           SelectedValuePath="Tag">
-                                    <ComboBoxItem Tag="embedded">内嵌字幕</ComboBoxItem>
-                                    <ComboBoxItem Tag="bilibili_danmaku">Bilibili XML 弹幕</ComboBoxItem>
+                                    <ComboBoxItem Tag="bilibili_auto">Bilibili 自动获取</ComboBoxItem>
+                                    <ComboBoxItem Tag="local_file">任务绑定本地文件</ComboBoxItem>
                                 </ComboBox>
-                                <TextBlock Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" Text="映射配置" />
-                                <TextBox Grid.Row="0" Grid.Column="3" Margin="8,0,0,8"
+                                <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" Text="映射配置" />
+                                <TextBox Grid.Row="1" Grid.Column="3" Margin="8,0,0,8"
                                          Text="{Binding Settings.DanmakuMappingPath, UpdateSourceTrigger=PropertyChanged}" />
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="字体名称" />
-                                <TextBox Grid.Row="1" Grid.Column="1" Margin="8,0,16,8"
-                                         Text="{Binding Settings.DanmakuFontName, UpdateSourceTrigger=PropertyChanged}" />
-                                <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" Text="字号" />
-                                <TextBox Grid.Row="1" Grid.Column="3" Margin="8,0,0,8"
-                                         Text="{Binding Settings.DanmakuFontSize, UpdateSourceTrigger=PropertyChanged}" />
-
-                                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="密度" />
-                                <TextBox Grid.Row="2" Grid.Column="1" Margin="8,0,16,8"
-                                         Text="{Binding Settings.DanmakuDensity, UpdateSourceTrigger=PropertyChanged}" />
-                                <TextBlock Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" Text="时间偏移(秒)" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="显示区域" />
+                                <ComboBox Grid.Row="2" Grid.Column="1" Margin="8,0,16,8"
+                                          SelectedValue="{Binding Settings.DanmakuAreaMode}"
+                                          SelectedValuePath="Tag">
+                                    <ComboBoxItem Tag="full_screen">全屏铺开</ComboBoxItem>
+                                    <ComboBoxItem Tag="upper_half">仅上半屏</ComboBoxItem>
+                                </ComboBox>
+                                <TextBlock Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" Text="字体名称" />
                                 <TextBox Grid.Row="2" Grid.Column="3" Margin="8,0,0,8"
+                                         Text="{Binding Settings.DanmakuFontName, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="字号" />
+                                <TextBox Grid.Row="3" Grid.Column="1" Margin="8,0,16,8"
+                                         Text="{Binding Settings.DanmakuFontSize, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock Grid.Row="3" Grid.Column="2" VerticalAlignment="Center" Text="密度" />
+                                <TextBox Grid.Row="3" Grid.Column="3" Margin="8,0,0,8"
+                                         Text="{Binding Settings.DanmakuDensity, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="时间偏移(秒)" />
+                                <TextBox Grid.Row="4" Grid.Column="1" Margin="8,0,16,8"
                                          Text="{Binding Settings.DanmakuTimeOffsetSeconds, UpdateSourceTrigger=PropertyChanged}" />
+                                <CheckBox Grid.Row="4" Grid.Column="2" Grid.ColumnSpan="2" Margin="8,0,0,8"
+                                          IsChecked="{Binding Settings.DanmakuFilterSpecialTypes}"
+                                          Content="过滤特殊弹幕（mode 7/8）" />
 
-                                <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,4,0,0" VerticalAlignment="Top" Text="屏蔽词" />
-                                <TextBox Grid.Row="3" Grid.Column="1" Margin="8,0,16,0" Height="68"
+                                <TextBlock Grid.Row="5" Grid.Column="0" Margin="0,4,0,0" VerticalAlignment="Top" Text="屏蔽词" />
+                                <TextBox Grid.Row="5" Grid.Column="1" Margin="8,0,16,0" Height="68"
                                          AcceptsReturn="True"
                                          VerticalScrollBarVisibility="Auto"
                                          Text="{Binding Settings.DanmakuBlockKeywords, UpdateSourceTrigger=PropertyChanged}" />
-                                <CheckBox Grid.Row="3" Grid.Column="2" Grid.ColumnSpan="2" Margin="8,4,0,0"
-                                          IsChecked="{Binding Settings.DanmakuFilterSpecialTypes}"
-                                          Content="过滤特殊弹幕（mode 7/8）" />
+                                <TextBlock Grid.Row="5" Grid.Column="2" Grid.ColumnSpan="2" Margin="8,4,0,0"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           Text="本地文件模式下，请在下方“选中任务详情”里给每个任务单独绑定 XML/ASS。" 
+                                           TextWrapping="Wrap" />
                             </Grid>
                         </GroupBox>
 
@@ -504,7 +523,7 @@
                         <GroupBox Header="选中任务详情" Margin="0,0,0,16">
                             <Grid Margin="12">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="1.2*" />
                                     <ColumnDefinition Width="16" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
@@ -514,13 +533,97 @@
                                     <Border Margin="0,8,0,0" Padding="10" Background="#FFF0DD" BorderBrush="#E1D1BE" BorderThickness="1" CornerRadius="10">
                                         <TextBlock Foreground="{StaticResource InkBrush}" Text="{Binding SelectedJobMessage}" TextWrapping="Wrap" />
                                     </Border>
+                                    <Border Margin="0,12,0,0" Padding="10" Background="#FFF8EE" BorderBrush="#E1D1BE" BorderThickness="1" CornerRadius="12">
+                                        <StackPanel>
+                                            <DockPanel LastChildFill="False">
+                                                <TextBlock DockPanel.Dock="Left" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}" Text="叠加预览" />
+                                                <TextBlock Margin="12,0,0,0" Foreground="{StaticResource MutedBrush}" Text="{Binding SelectedPreviewSummary}" TextWrapping="Wrap" />
+                                            </DockPanel>
+                                            <StackPanel Margin="0,10,0,0" Orientation="Horizontal">
+                                                <TextBlock VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Text="时间点(秒)" />
+                                                <TextBox Width="90" Margin="8,0,12,0"
+                                                         Text="{Binding SelectedPreviewTimeText, UpdateSourceTrigger=PropertyChanged}" />
+                                                <Button Command="{Binding RefreshSelectedPreviewCommand}" Content="刷新预览" />
+                                            </StackPanel>
+                                            <Border Margin="0,10,0,0" Height="240" Background="#F3E8D9" BorderBrush="#DCCAB7" BorderThickness="1" CornerRadius="10">
+                                                <Image Source="{Binding SelectedPreviewImagePath}" Stretch="Uniform" />
+                                            </Border>
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Margin="0,12,0,0" Padding="10" Background="#FFF9F2" BorderBrush="#E1D1BE" BorderThickness="1" CornerRadius="12">
+                                        <StackPanel>
+                                            <DockPanel LastChildFill="False">
+                                                <TextBlock DockPanel.Dock="Left" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}" Text="弹幕编辑台" />
+                                                <TextBlock Margin="12,0,0,0" Foreground="{StaticResource MutedBrush}" Text="{Binding SelectedDanmakuAnalysisSummary}" TextWrapping="Wrap" />
+                                            </DockPanel>
+                                            <StackPanel Margin="0,10,0,0" Orientation="Horizontal">
+                                                <TextBlock VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Text="搜索" />
+                                                <TextBox Width="180" Margin="8,0,12,0"
+                                                         Text="{Binding DanmakuSearchText, UpdateSourceTrigger=PropertyChanged}" />
+                                                <TextBlock VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Text="模式" />
+                                                <ComboBox Width="110" Margin="8,0,12,0"
+                                                          SelectedValue="{Binding SelectedDanmakuModeFilter}"
+                                                          SelectedValuePath="Tag">
+                                                    <ComboBoxItem Tag="all">全部</ComboBoxItem>
+                                                    <ComboBoxItem Tag="scroll">滚动</ComboBoxItem>
+                                                    <ComboBoxItem Tag="top">顶部</ComboBoxItem>
+                                                    <ComboBoxItem Tag="bottom">底部</ComboBoxItem>
+                                                </ComboBox>
+                                                <Button Command="{Binding AnalyzeSelectedDanmakuCommand}" Content="重新分析弹幕" />
+                                                <Button Command="{Binding OpenGeneratedDanmakuAssCommand}" Content="打开生成 ASS" />
+                                                <Button Command="{Binding ClearSelectedDanmakuExclusionsCommand}" Content="清空手动禁用" />
+                                                <Button Command="{Binding ImportSelectedDanmakuRulesCommand}" Content="导入规则" />
+                                                <Button Command="{Binding ExportSelectedDanmakuRulesCommand}" Content="导出规则" />
+                                            </StackPanel>
+                                            <StackPanel Margin="0,10,0,0" Orientation="Horizontal">
+                                                <TextBlock VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Text="关键词" />
+                                                <TextBox Width="260" Margin="8,0,12,0"
+                                                         Text="{Binding DanmakuKeywordBatchText, UpdateSourceTrigger=PropertyChanged}" />
+                                                <Button Command="{Binding DisableDanmakuByKeywordsCommand}" Content="禁用命中关键词" />
+                                                <Button Command="{Binding EnableDanmakuByKeywordsCommand}" Content="恢复命中关键词" />
+                                            </StackPanel>
+                                            <StackPanel Margin="0,10,0,0" Orientation="Horizontal">
+                                                <Button Command="{Binding DisableFilteredDanmakuCommand}" Content="禁用当前筛选结果" />
+                                                <Button Command="{Binding EnableFilteredDanmakuCommand}" Content="恢复当前筛选结果" />
+                                                <TextBlock Margin="12,6,0,0" Foreground="{StaticResource MutedBrush}"
+                                                           Text="{Binding FilteredDanmakuCountSummary}" />
+                                                <TextBlock Margin="12,6,0,0" Foreground="{StaticResource MutedBrush}"
+                                                           Text="{Binding SelectedDanmakuDisabledCount, StringFormat=已手动禁用 {0} 条}" />
+                                            </StackPanel>
+                                            <DataGrid Margin="0,10,0,0"
+                                                      AutoGenerateColumns="False"
+                                                      CanUserAddRows="False"
+                                                      IsReadOnly="False"
+                                                      HeadersVisibility="Column"
+                                                      GridLinesVisibility="Horizontal"
+                                                      RowBackground="#FFFDF8"
+                                                      AlternatingRowBackground="#FFF6EB"
+                                                      BorderThickness="0"
+                                                      Height="320"
+                                                      ItemsSource="{Binding EditableSelectedDanmakuCommentsView}">
+                                                <DataGrid.Columns>
+                                                    <DataGridCheckBoxColumn Width="68" Header="启用" Binding="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}" />
+                                                    <DataGridTextColumn Width="84" Header="时间" Binding="{Binding TimeSeconds, StringFormat={}{0:0.###}s}" />
+                                                    <DataGridTextColumn Width="66" Header="模式" Binding="{Binding Mode}" />
+                                                    <DataGridTextColumn Width="*" Header="内容" Binding="{Binding Content}" />
+                                                </DataGrid.Columns>
+                                            </DataGrid>
+                                        </StackPanel>
+                                    </Border>
                                 </StackPanel>
                                 <Grid Grid.Column="2">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="80" />
+                                        <ColumnDefinition Width="92" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
@@ -541,7 +644,24 @@
                                     <TextBlock Grid.Row="4" Grid.Column="1" Margin="0,0,0,6" Text="{Binding SelectedJobSubtitleAnalysis}" />
                                     <TextBlock Grid.Row="5" Grid.Column="0" Margin="0,0,8,6" Foreground="{StaticResource MutedBrush}" Text="字幕类型" />
                                     <TextBlock Grid.Row="5" Grid.Column="1" Margin="0,0,0,6" Text="{Binding SelectedJobSubtitleKind}" TextWrapping="Wrap" />
-                                    <StackPanel Grid.Row="6" Grid.ColumnSpan="2" Margin="0,8,0,0" Orientation="Horizontal">
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Margin="0,0,8,6" Foreground="{StaticResource MutedBrush}" Text="弹幕来源" />
+                                    <TextBlock Grid.Row="6" Grid.Column="1" Margin="0,0,0,6" Text="{Binding SelectedJobDanmakuSource}" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Margin="0,0,8,6" Foreground="{StaticResource MutedBrush}" Text="本地弹幕" />
+                                    <TextBlock Grid.Row="7" Grid.Column="1" Margin="0,0,0,6" Text="{Binding SelectedJobDanmakuInputPath}" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="8" Grid.Column="0" Margin="0,0,8,6" Foreground="{StaticResource MutedBrush}" Text="分析摘要" />
+                                    <TextBlock Grid.Row="8" Grid.Column="1" Margin="0,0,0,6" Text="{Binding SelectedJobDanmakuPreparation}" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="9" Grid.Column="0" Margin="0,0,8,6" Foreground="{StaticResource MutedBrush}" Text="过滤结果" />
+                                    <TextBlock Grid.Row="9" Grid.Column="1" Margin="0,0,0,6" Text="{Binding SelectedJobDanmakuXmlStats}" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="10" Grid.Column="0" Margin="0,0,8,6" Foreground="{StaticResource MutedBrush}" Text="生成 ASS" />
+                                    <TextBlock Grid.Row="10" Grid.Column="1" Margin="0,0,0,6" Text="{Binding SelectedJobDanmakuAssPath}" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="11" Grid.Column="0" Margin="0,0,8,6" Foreground="{StaticResource MutedBrush}" Text="手动禁用" />
+                                    <TextBlock Grid.Row="11" Grid.Column="1" Margin="0,0,0,6" Text="{Binding SelectedDanmakuDisabledCount, StringFormat={}{0} 条}" TextWrapping="Wrap" />
+                                    <StackPanel Grid.Row="12" Grid.ColumnSpan="2" Margin="0,8,0,0" Orientation="Horizontal">
+                                        <Button Command="{Binding ChooseSelectedJobDanmakuCommand}" Content="绑定本地弹幕" />
+                                        <Button Command="{Binding ClearSelectedJobDanmakuCommand}" Content="清空绑定" />
+                                        <Button Command="{Binding OpenSelectedDanmakuCommand}" Content="打开弹幕文件" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="13" Grid.ColumnSpan="2" Margin="0,8,0,0" Orientation="Horizontal">
                                         <Button Command="{Binding CaptureSelectedFrameSetCommand}" Content="导出巡检三连图" />
                                         <Button Command="{Binding CaptureSelectedFrameCommand}" Content="导出诊断截图" />
                                         <Button Command="{Binding OpenSelectedOutputDirectoryCommand}" Content="打开输出目录" />

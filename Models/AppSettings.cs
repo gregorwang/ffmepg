@@ -17,7 +17,9 @@ public sealed class AppSettings : ObservableObject
     private bool _preferStereoAudio = true;
     private bool _enableFaststart = true;
     private int _outputSafetyMarginMb = 2048;
-    private string _subtitleSourceMode = SubtitleSourceModes.Embedded;
+    private bool _burnEmbeddedSubtitles = true;
+    private bool _enableDanmaku;
+    private string _danmakuSourceMode = DanmakuSourceModes.BilibiliAuto;
     private string _danmakuMappingPath = string.Empty;
     private string _danmakuFontName = "Microsoft YaHei";
     private int _danmakuFontSize = 46;
@@ -25,6 +27,8 @@ public sealed class AppSettings : ObservableObject
     private double _danmakuTimeOffsetSeconds;
     private string _danmakuBlockKeywords = string.Empty;
     private bool _danmakuFilterSpecialTypes = true;
+    private string _danmakuAreaMode = DanmakuAreaModes.UpperHalf;
+    private string _subtitleSourceMode = SubtitleSourceModes.Embedded;
 
     public string InputDirectory
     {
@@ -116,6 +120,30 @@ public sealed class AppSettings : ObservableObject
         set => SetProperty(ref _outputSafetyMarginMb, value);
     }
 
+    public bool BurnEmbeddedSubtitles
+    {
+        get => _burnEmbeddedSubtitles;
+        set => SetProperty(ref _burnEmbeddedSubtitles, value);
+    }
+
+    public bool EnableDanmaku
+    {
+        get => _enableDanmaku;
+        set => SetProperty(ref _enableDanmaku, value);
+    }
+
+    public string DanmakuSourceMode
+    {
+        get => _danmakuSourceMode;
+        set => SetProperty(ref _danmakuSourceMode, value);
+    }
+
+    public string DanmakuAreaMode
+    {
+        get => _danmakuAreaMode;
+        set => SetProperty(ref _danmakuAreaMode, value);
+    }
+
     public string SubtitleSourceMode
     {
         get => _subtitleSourceMode;
@@ -183,14 +211,18 @@ public sealed class AppSettings : ObservableObject
             PreferStereoAudio = true,
             EnableFaststart = true,
             OutputSafetyMarginMb = 2048,
-            SubtitleSourceMode = SubtitleSourceModes.Embedded,
+            BurnEmbeddedSubtitles = true,
+            EnableDanmaku = false,
+            DanmakuSourceMode = DanmakuSourceModes.BilibiliAuto,
             DanmakuMappingPath = Path.Combine(workspaceRoot, "Config", "anime-danmaku-mappings.json"),
             DanmakuFontName = "Microsoft YaHei",
             DanmakuFontSize = 46,
             DanmakuDensity = 0.65,
             DanmakuTimeOffsetSeconds = 0,
             DanmakuBlockKeywords = string.Empty,
-            DanmakuFilterSpecialTypes = true
+            DanmakuFilterSpecialTypes = true,
+            DanmakuAreaMode = DanmakuAreaModes.UpperHalf,
+            SubtitleSourceMode = SubtitleSourceModes.Embedded
         };
     }
 }

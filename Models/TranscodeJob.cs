@@ -12,6 +12,14 @@ public sealed class TranscodeJob : ObservableObject
     private double _sourceDurationSeconds;
     private string _subtitleAnalysisSource = string.Empty;
     private string _subtitleKindSummary = string.Empty;
+    private string _danmakuInputPath = string.Empty;
+    private string _danmakuSourceSummary = string.Empty;
+    private string _danmakuPreparationSummary = string.Empty;
+    private string _danmakuXmlPath = string.Empty;
+    private string _danmakuAssPath = string.Empty;
+    private int _danmakuXmlCommentCount;
+    private int _danmakuKeptCommentCount;
+    private string _danmakuExcludedCommentKeys = string.Empty;
 
     public Guid Id { get; init; } = Guid.NewGuid();
     public string InputPath { get; init; } = string.Empty;
@@ -82,6 +90,54 @@ public sealed class TranscodeJob : ObservableObject
     {
         get => _subtitleKindSummary;
         set => SetProperty(ref _subtitleKindSummary, value);
+    }
+
+    public string DanmakuInputPath
+    {
+        get => _danmakuInputPath;
+        set => SetProperty(ref _danmakuInputPath, value);
+    }
+
+    public string DanmakuSourceSummary
+    {
+        get => _danmakuSourceSummary;
+        set => SetProperty(ref _danmakuSourceSummary, value);
+    }
+
+    public string DanmakuPreparationSummary
+    {
+        get => _danmakuPreparationSummary;
+        set => SetProperty(ref _danmakuPreparationSummary, value);
+    }
+
+    public string DanmakuXmlPath
+    {
+        get => _danmakuXmlPath;
+        set => SetProperty(ref _danmakuXmlPath, value);
+    }
+
+    public string DanmakuAssPath
+    {
+        get => _danmakuAssPath;
+        set => SetProperty(ref _danmakuAssPath, value);
+    }
+
+    public int DanmakuXmlCommentCount
+    {
+        get => _danmakuXmlCommentCount;
+        set => SetProperty(ref _danmakuXmlCommentCount, value);
+    }
+
+    public int DanmakuKeptCommentCount
+    {
+        get => _danmakuKeptCommentCount;
+        set => SetProperty(ref _danmakuKeptCommentCount, value);
+    }
+
+    public string DanmakuExcludedCommentKeys
+    {
+        get => _danmakuExcludedCommentKeys;
+        set => SetProperty(ref _danmakuExcludedCommentKeys, value);
     }
 
     public string StatusText => Status switch

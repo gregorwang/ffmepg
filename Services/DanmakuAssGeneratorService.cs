@@ -21,6 +21,7 @@ public sealed class DanmakuAssGeneratorService
         long cid,
         string xmlPath,
         AppSettings settings,
+        IReadOnlySet<string>? excludedCommentKeys,
         Action<string>? logCallback,
         CancellationToken cancellationToken = default)
     {
@@ -30,14 +31,15 @@ public sealed class DanmakuAssGeneratorService
         }
 
         var xml = await File.ReadAllTextAsync(xmlPath, cancellationToken);
-        var cacheKey = $"{cid}|{BuildSettingsFingerprint(settings)}";
+        var exclusionFingerprint = BuildExcludedCommentFingerprint(excludedCommentKeys);
+        var cacheKey = $"{cid}|{BuildSettingsFingerprint(settings)}|{exclusionFingerprint}";
         var ass = await _cacheService.GetOrCreateTextAsync(
             "bilibili-ass",
             cacheKey,
             "ass",
             _ =>
             {
-                var comments = ParseComments(xml, settings);
+                var comments = ParseComments(xml, settings, excludedCommentKeys);
                 return Task.FromResult(BuildAssDocument(comments, settings));
             },
             cancellationToken);
@@ -49,7 +51,38 @@ public sealed class DanmakuAssGeneratorService
         return (assPath, keptComments);
     }
 
-    public IReadOnlyList<DanmakuComment> ParseComments(string xml, AppSettings settings)
+    public async Task<(string AssPath, int XmlCommentCount, int KeptComments)> GenerateFromXmlAsync(
+        string sourceKey,
+        string xmlPath,
+        AppSettings settings,
+        IReadOnlySet<string>? excludedCommentKeys,
+        Action<string>? logCallback,
+        CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(xmlPath))
+        {
+            throw new FileNotFoundException("XML 弹幕文件不存在。", xmlPath);
+        }
+
+        var xml = await File.ReadAllTextAsync(xmlPath, cancellationToken);
+        var exclusionFingerprint = BuildExcludedCommentFingerprint(excludedCommentKeys);
+        var cacheKey = $"{sourceKey}|{BuildSettingsFingerprint(settings)}|{exclusionFingerprint}|{new FileInfo(xmlPath).LastWriteTimeUtc.Ticks}";
+        var comments = ParseComments(xml, settings, excludedCommentKeys);
+        var ass = await _cacheService.GetOrCreateTextAsync(
+            "local-ass",
+            cacheKey,
+            "ass",
+            _ => Task.FromResult(BuildAssDocument(comments, settings)),
+            cancellationToken);
+
+        var keptComments = ass.Split(Environment.NewLine)
+            .Count(line => line.StartsWith("Dialogue:", StringComparison.Ordinal));
+        var assPath = _cacheService.GetCachePath("local-ass", cacheKey, "ass");
+        logCallback?.Invoke($"本地 XML 转 ASS 完成：保留弹幕 {keptComments} | {assPath}");
+        return (assPath, CountComments(xml), keptComments);
+    }
+
+    public IReadOnlyList<DanmakuComment> ParseComments(string xml, AppSettings settings, IReadOnlySet<string>? excludedCommentKeys = null)
     {
         var blockWords = ParseBlockWords(settings.DanmakuBlockKeywords);
         var document = XDocument.Parse(xml);
@@ -61,8 +94,10 @@ public sealed class DanmakuAssGeneratorService
             .Where(comment => !string.IsNullOrWhiteSpace(comment.Content))
             .Where(comment => !settings.DanmakuFilterSpecialTypes || (comment.Mode != 7 && comment.Mode != 8))
             .Where(comment => !blockWords.Any(word => comment.Content.Contains(word, StringComparison.OrdinalIgnoreCase)))
+            .Where(comment => excludedCommentKeys is null || !excludedCommentKeys.Contains(BuildCommentKey(comment.TimeSeconds, comment.Mode, comment.Content)))
             .Select(comment => new DanmakuComment
             {
+                Key = BuildCommentKey(Math.Max(0, comment.TimeSeconds + settings.DanmakuTimeOffsetSeconds), comment.Mode, comment.Content.Trim()),
                 TimeSeconds = Math.Max(0, comment.TimeSeconds + settings.DanmakuTimeOffsetSeconds),
                 Mode = comment.Mode,
                 FontSize = comment.FontSize,
@@ -73,6 +108,28 @@ public sealed class DanmakuAssGeneratorService
             .ToList();
 
         return ApplyDensity(rawComments, settings.DanmakuDensity);
+    }
+
+    public async Task<DanmakuAnalysisSnapshot> AnalyzeXmlFileAsync(
+        string xmlPath,
+        AppSettings settings,
+        IReadOnlySet<string>? excludedCommentKeys = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(xmlPath))
+        {
+            throw new FileNotFoundException("XML 弹幕文件不存在。", xmlPath);
+        }
+
+        var xml = await File.ReadAllTextAsync(xmlPath, cancellationToken);
+        var comments = ParseComments(xml, settings, excludedCommentKeys);
+        return new DanmakuAnalysisSnapshot
+        {
+            XmlPath = xmlPath,
+            XmlCommentCount = CountComments(xml),
+            KeptCommentCount = comments.Count,
+            Comments = comments
+        };
     }
 
     public string BuildAssDocument(IReadOnlyList<DanmakuComment> comments, AppSettings settings)
@@ -96,7 +153,15 @@ public sealed class DanmakuAssGeneratorService
         builder.AppendLine("Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text");
 
         var lineHeight = Math.Max(settings.DanmakuFontSize + 6, 18);
-        var scrollRows = new double[Math.Max(8, (PlayResY - 120) / lineHeight)];
+        var reservedBottom = settings.BurnEmbeddedSubtitles
+            ? Math.Max(settings.DanmakuFontSize * 2 + 40, 140)
+            : 48;
+        var areaTop = 36;
+        var areaBottom = string.Equals(settings.DanmakuAreaMode, DanmakuAreaModes.UpperHalf, StringComparison.OrdinalIgnoreCase)
+            ? Math.Max(areaTop + lineHeight * 4, PlayResY / 2)
+            : Math.Max(areaTop + lineHeight * 4, PlayResY - reservedBottom);
+        var availableHeight = Math.Max(lineHeight * 4, areaBottom - areaTop);
+        var scrollRows = new double[Math.Max(8, availableHeight / lineHeight)];
         var topRows = new double[Math.Max(4, Math.Min(10, scrollRows.Length / 4))];
         var bottomRows = new double[Math.Max(4, Math.Min(10, scrollRows.Length / 4))];
 
@@ -121,19 +186,19 @@ public sealed class DanmakuAssGeneratorService
             if (isTop)
             {
                 var lane = AcquireLane(topRows, startSeconds, durationSeconds);
-                y = 40 + (lane * lineHeight);
+                y = areaTop + (lane * lineHeight);
                 animation = $"\\an8\\pos({PlayResX / 2},{y})";
             }
             else if (isBottom)
             {
                 var lane = AcquireLane(bottomRows, startSeconds, durationSeconds);
-                y = PlayResY - 50 - (lane * lineHeight);
+                y = areaBottom - 20 - (lane * lineHeight);
                 animation = $"\\an2\\pos({PlayResX / 2},{y})";
             }
             else
             {
                 var lane = AcquireLane(scrollRows, startSeconds, durationSeconds);
-                y = 36 + (lane * lineHeight);
+                y = areaTop + (lane * lineHeight);
                 var estimatedWidth = Math.Max(120, EstimateTextWidth(text, fontSize));
                 animation = isReverse
                     ? $"\\move({-estimatedWidth},{y},{PlayResX + estimatedWidth},{y})"
@@ -289,7 +354,32 @@ public sealed class DanmakuAssGeneratorService
             settings.DanmakuDensity.ToString(CultureInfo.InvariantCulture),
             settings.DanmakuTimeOffsetSeconds.ToString(CultureInfo.InvariantCulture),
             settings.DanmakuBlockKeywords,
-            settings.DanmakuFilterSpecialTypes);
+            settings.DanmakuFilterSpecialTypes,
+            settings.DanmakuAreaMode,
+            settings.BurnEmbeddedSubtitles);
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    private static int CountComments(string xml)
+    {
+        var document = XDocument.Parse(xml);
+        return document.Descendants("d").Count();
+    }
+
+    public static string BuildCommentKey(double timeSeconds, int mode, string content)
+    {
+        return $"{timeSeconds:0.###}|{mode}|{content.Trim()}";
+    }
+
+    private static string BuildExcludedCommentFingerprint(IReadOnlySet<string>? excludedCommentKeys)
+    {
+        if (excludedCommentKeys is null || excludedCommentKeys.Count == 0)
+        {
+            return "none";
+        }
+
+        var raw = string.Join("|", excludedCommentKeys.OrderBy(key => key, StringComparer.Ordinal));
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
         return Convert.ToHexString(bytes).ToLowerInvariant();
     }

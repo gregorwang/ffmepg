@@ -33,6 +33,33 @@ public sealed class UserDialogService
         return dialog.ShowDialog() == true ? dialog.FileName : null;
     }
 
+    public string? PickDanmakuFile(string? initialDirectory = null)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "Danmaku Files (*.xml;*.ass)|*.xml;*.ass|XML Files (*.xml)|*.xml|ASS Files (*.ass)|*.ass|All Files (*.*)|*.*",
+            Multiselect = false,
+            CheckFileExists = true,
+            InitialDirectory = string.IsNullOrWhiteSpace(initialDirectory) ? string.Empty : initialDirectory
+        };
+
+        return dialog.ShowDialog() == true ? dialog.FileName : null;
+    }
+
+    public string? PickFile(string title, string filter, string? initialDirectory = null)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = title,
+            Filter = filter,
+            Multiselect = false,
+            CheckFileExists = true,
+            InitialDirectory = string.IsNullOrWhiteSpace(initialDirectory) ? string.Empty : initialDirectory
+        };
+
+        return dialog.ShowDialog() == true ? dialog.FileName : null;
+    }
+
     public string? PickFolder(string? initialPath = null)
     {
         using var dialog = new Forms.FolderBrowserDialog

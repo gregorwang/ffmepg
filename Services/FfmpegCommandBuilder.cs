@@ -6,15 +6,32 @@ public sealed class FfmpegCommandBuilder
 {
     public IReadOnlyList<string> BuildArguments(TranscodeJob job, AppSettings settings, string videoEncoder)
     {
-        if (job.SubtitleStreamOrdinal is null)
+        return BuildArguments(
+            job.InputPath,
+            job.OutputPath,
+            job.SubtitleStreamOrdinal,
+            null,
+            settings,
+            videoEncoder);
+    }
+
+    public IReadOnlyList<string> BuildArguments(
+        string inputPath,
+        string outputPath,
+        int? subtitleStreamOrdinal,
+        string? assPath,
+        AppSettings settings,
+        string videoEncoder)
+    {
+        if (subtitleStreamOrdinal is null && string.IsNullOrWhiteSpace(assPath))
         {
-            throw new InvalidOperationException("Subtitle stream ordinal must be set before building ffmpeg arguments.");
+            throw new InvalidOperationException("At least one subtitle or danmaku source must be set before building ffmpeg arguments.");
         }
 
         return BuildArgumentsCore(
-            job.InputPath,
-            job.OutputPath,
-            $"subtitles='{ConvertToFilterPath(job.InputPath)}':si={job.SubtitleStreamOrdinal.Value}",
+            inputPath,
+            outputPath,
+            BuildVideoFilter(inputPath, subtitleStreamOrdinal, assPath),
             settings,
             videoEncoder);
     }
@@ -29,9 +46,26 @@ public sealed class FfmpegCommandBuilder
         return BuildArgumentsCore(
             inputPath,
             outputPath,
-            $"ass='{ConvertToFilterPath(assPath)}'",
+            BuildVideoFilter(inputPath, null, assPath),
             settings,
             videoEncoder);
+    }
+
+    public string BuildVideoFilter(string inputPath, int? subtitleStreamOrdinal, string? assPath)
+    {
+        var filters = new List<string>();
+
+        if (subtitleStreamOrdinal is not null)
+        {
+            filters.Add($"subtitles='{ConvertToFilterPath(inputPath)}':si={subtitleStreamOrdinal.Value}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(assPath))
+        {
+            filters.Add($"ass='{ConvertToFilterPath(assPath)}'");
+        }
+
+        return string.Join(",", filters);
     }
 
     private static IReadOnlyList<string> BuildArgumentsCore(
