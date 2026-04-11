@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\AnimeTranscoder.csproj" />
+    <ProjectReference Include="..\AnimeTranscoder.Core\AnimeTranscoder.Core.csproj" />
+    <ProjectReference Include="..\AnimeTranscoder.Cli\AnimeTranscoder.Cli.csproj" />
   </ItemGroup>
 </Project>

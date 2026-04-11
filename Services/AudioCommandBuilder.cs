@@ -161,6 +161,36 @@ public sealed class AudioCommandBuilder
         return args;
     }
 
+    public IReadOnlyList<string> BuildExtractWorkArguments(
+        string inputPath,
+        string outputPath,
+        int? trackIndex,
+        int sampleRate)
+    {
+        var args = new List<string> { "-y", "-hide_banner", "-nostats", "-progress", "pipe:1" };
+
+        args.AddRange(["-i", inputPath]);
+
+        if (trackIndex.HasValue)
+        {
+            args.AddRange(["-map", $"0:a:{trackIndex.Value}"]);
+        }
+
+        args.AddRange([
+            "-vn",
+            "-sn",
+            "-ac",
+            "1",
+            "-ar",
+            sampleRate.ToString(CultureInfo.InvariantCulture),
+            "-c:a",
+            "pcm_s16le",
+            outputPath
+        ]);
+
+        return args;
+    }
+
     public static AudioFormat GetEffectiveFormat(AudioFormat format, bool normalize)
     {
         return normalize && format == AudioFormat.Copy

@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:model="clr-namespace:AnimeTranscoder.Models"
+        xmlns:model="clr-namespace:AnimeTranscoder.Models;assembly=AnimeTranscoder.Core"
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         mc:Ignorable="d"
         Title="番剧一键转码器"
@@ -754,6 +754,130 @@
 
                         <GroupBox Grid.Row="1"
                                   Margin="0,14,0,0"
+                                  Header="音频项目">
+                            <Grid Margin="12">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="110" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Row="0"
+                                           Grid.Column="0"
+                                           VerticalAlignment="Center"
+                                           Text="项目文件" />
+                                <TextBox Grid.Row="0"
+                                         Grid.Column="1"
+                                         Margin="8,0,8,8"
+                                         IsReadOnly="True"
+                                         Text="{Binding AudioProjectPath, Mode=OneWay}" />
+                                <Button Grid.Row="0"
+                                        Grid.Column="2"
+                                        Padding="12,6"
+                                        Margin="0,0,8,8"
+                                        Command="{Binding CreateAudioProjectCommand}"
+                                        Content="创建项目" />
+                                <Button Grid.Row="0"
+                                        Grid.Column="3"
+                                        Padding="12,6"
+                                        Margin="0,0,8,8"
+                                        Style="{StaticResource GhostButtonStyle}"
+                                        Command="{Binding LoadAudioProjectCommand}"
+                                        Content="加载项目" />
+                                <Button Grid.Row="0"
+                                        Grid.Column="4"
+                                        Padding="12,6"
+                                        Margin="0,0,0,8"
+                                        Style="{StaticResource GhostButtonStyle}"
+                                        Command="{Binding OpenAudioProjectDirectoryCommand}"
+                                        Content="打开项目目录" />
+
+                                <TextBlock Grid.Row="1"
+                                           Grid.Column="0"
+                                           VerticalAlignment="Center"
+                                           Text="项目状态" />
+                                <TextBlock Grid.Row="1"
+                                           Grid.Column="1"
+                                           Grid.ColumnSpan="4"
+                                           Margin="8,0,0,8"
+                                           Foreground="{StaticResource AccentBrushDark}"
+                                           Text="{Binding AudioProjectStatusSummary}"
+                                           TextWrapping="Wrap" />
+
+                                <TextBlock Grid.Row="2"
+                                           Grid.Column="0"
+                                           VerticalAlignment="Center"
+                                           Text="工作音频" />
+                                <TextBox Grid.Row="2"
+                                         Grid.Column="1"
+                                         Margin="8,0,8,8"
+                                         IsReadOnly="True"
+                                         Text="{Binding AudioProjectWorkingAudioPath, Mode=OneWay}" />
+                                <Button Grid.Row="2"
+                                        Grid.Column="2"
+                                        Padding="12,6"
+                                        Margin="0,0,0,8"
+                                        Command="{Binding ExportAudioWorkCommand}"
+                                        Content="导出工作音频" />
+
+                                <TextBlock Grid.Row="3"
+                                           Grid.Column="0"
+                                           VerticalAlignment="Center"
+                                           Text="Transcript" />
+                                <TextBox Grid.Row="3"
+                                         Grid.Column="1"
+                                         Margin="8,0,8,8"
+                                         IsReadOnly="True"
+                                         Text="{Binding AudioProjectTranscriptPath, Mode=OneWay}" />
+                                <Button Grid.Row="3"
+                                        Grid.Column="2"
+                                        Padding="12,6"
+                                        Margin="0,0,0,8"
+                                        Command="{Binding ImportAudioTranscriptCommand}"
+                                        Content="导入 Transcript" />
+
+                                <TextBlock Grid.Row="4"
+                                           Grid.Column="0"
+                                           VerticalAlignment="Center"
+                                           Text="Selection" />
+                                <TextBox Grid.Row="4"
+                                         Grid.Column="1"
+                                         Margin="8,0,8,0"
+                                         IsReadOnly="True"
+                                         Text="{Binding AudioProjectSelectionPath, Mode=OneWay}" />
+                                <StackPanel Grid.Row="4"
+                                            Grid.Column="2"
+                                            Grid.ColumnSpan="3"
+                                            Orientation="Horizontal">
+                                    <Button Padding="12,6"
+                                            Margin="0,0,8,0"
+                                            Command="{Binding ImportAudioSelectionCommand}"
+                                            Content="导入 Selection" />
+                                    <ComboBox Width="140"
+                                              Margin="0,0,8,0"
+                                              SelectedValue="{Binding SelectedAudioRenderMode}"
+                                              SelectedValuePath="Tag">
+                                        <ComboBoxItem Tag="{x:Static model:AudioRenderMode.PreserveTimeline}">保留时间线</ComboBoxItem>
+                                        <ComboBoxItem Tag="{x:Static model:AudioRenderMode.Concat}">拼接输出</ComboBoxItem>
+                                    </ComboBox>
+                                    <Button Padding="12,6"
+                                            Command="{Binding RenderAudioSelectionCommand}"
+                                            Content="按选择结果渲染" />
+                                </StackPanel>
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Grid.Row="2"
+                                  Margin="0,14,0,0"
                                   Header="提取参数">
                             <Grid Margin="12">
                                 <Grid.RowDefinitions>
@@ -837,7 +961,7 @@
                             </Grid>
                         </GroupBox>
 
-                        <GroupBox Grid.Row="2"
+                        <GroupBox Grid.Row="3"
                                   Margin="0,14,0,0"
                                   Header="BGM 混音">
                             <Grid Margin="12">
@@ -927,7 +1051,7 @@
                             </Grid>
                         </GroupBox>
 
-                        <Border Grid.Row="3"
+                        <Border Grid.Row="4"
                                 Margin="0,14,0,0"
                                 Padding="16"
                                 Background="#FFF8EE"
@@ -981,7 +1105,7 @@
                             </Grid>
                         </Border>
 
-                        <GroupBox Grid.Row="4"
+                        <GroupBox Grid.Row="5"
                                   Margin="0,14,0,0"
                                   Header="静音检测">
                             <Grid Margin="12">
@@ -1035,7 +1159,7 @@
                             </Grid>
                         </GroupBox>
 
-                        <GroupBox Grid.Row="5"
+                        <GroupBox Grid.Row="6"
                                   Margin="0,14,0,0"
                                   Header="音轨列表">
                             <Grid Margin="8">

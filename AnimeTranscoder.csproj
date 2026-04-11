@@ -15,8 +15,28 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="AnimeTranscoder.Core\AnimeTranscoder.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Remove="AnimeTranscoder.Tests\**\*.cs" />
+    <Compile Remove="AnimeTranscoder.Core\**\*.cs" />
+    <Compile Remove="AnimeTranscoder.Cli\**\*.cs" />
+    <Compile Remove="Infrastructure\**\*.cs" />
+    <Compile Remove="Models\**\*.cs" />
+    <Compile Remove="Services\**\*.cs" />
+    <Compile Remove="Workflows\**\*.cs" />
     <EmbeddedResource Remove="AnimeTranscoder.Tests\**\*" />
+    <EmbeddedResource Remove="AnimeTranscoder.Core\**\*" />
+    <EmbeddedResource Remove="AnimeTranscoder.Cli\**\*" />
     <None Remove="AnimeTranscoder.Tests\**\*" />
+    <None Remove="AnimeTranscoder.Core\**\*" />
+    <None Remove="AnimeTranscoder.Cli\**\*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Infrastructure\AsyncRelayCommand.cs" />
+    <Compile Include="Infrastructure\RelayCommand.cs" />
+    <Compile Include="Services\UserDialogService.cs" />
   </ItemGroup>
 </Project>

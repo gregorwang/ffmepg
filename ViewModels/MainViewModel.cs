@@ -7,10 +7,11 @@ using System.Windows.Data;
 using AnimeTranscoder.Infrastructure;
 using AnimeTranscoder.Models;
 using AnimeTranscoder.Services;
+using AnimeTranscoder.Workflows;
 
 namespace AnimeTranscoder.ViewModels;
 
-public sealed class MainViewModel : ObservableObject, IDisposable
+public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
     private readonly JsonSettingsService _settingsService;
     private readonly TaskHistoryService _taskHistoryService;
@@ -151,13 +152,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         FfmpegRunner ffmpegRunner,
         FrameInspectionService frameInspectionService,
         AudioExtractionService audioExtractionService,
+        AudioProcessingWorkflow audioProcessingWorkflow,
+        TranscodeQueueWorkflow transcodeQueueWorkflow,
         VideoClipService videoClipService,
         DouyinExportService douyinExportService,
         DanmakuPreparationService danmakuPreparationService,
         DanmakuBurnCommandBuilder danmakuBurnCommandBuilder,
         DanmakuAssGeneratorService danmakuAssGeneratorService,
         DanmakuExclusionRuleService danmakuExclusionRuleService,
-        OverlayFramePreviewService overlayFramePreviewService)
+        OverlayFramePreviewService overlayFramePreviewService,
+        ProjectFileService projectFileService,
+        TranscriptDocumentService transcriptDocumentService,
+        SelectionDocumentService selectionDocumentService,
+        ProjectAudioWorkflow projectAudioWorkflow)
     {
         _settingsService = settingsService;
         _taskHistoryService = taskHistoryService;
@@ -172,6 +179,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _ffmpegRunner = ffmpegRunner;
         _frameInspectionService = frameInspectionService;
         _audioExtractionService = audioExtractionService;
+        _audioProcessingWorkflow = audioProcessingWorkflow;
+        _transcodeQueueWorkflow = transcodeQueueWorkflow;
         _videoClipService = videoClipService;
         _douyinExportService = douyinExportService;
         _danmakuPreparationService = danmakuPreparationService;
@@ -179,6 +188,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _danmakuAssGeneratorService = danmakuAssGeneratorService;
         _danmakuExclusionRuleService = danmakuExclusionRuleService;
         _overlayFramePreviewService = overlayFramePreviewService;
+        _projectFileService = projectFileService;
+        _transcriptDocumentService = transcriptDocumentService;
+        _selectionDocumentService = selectionDocumentService;
+        _projectAudioWorkflow = projectAudioWorkflow;
         _settings = AppSettings.CreateDefault(ToolPathResolver.ResolveWorkspaceRoot());
         EditableSelectedDanmakuCommentsView = CollectionViewSource.GetDefaultView(EditableSelectedDanmakuComments);
         EditableSelectedDanmakuCommentsView.Filter = FilterEditableDanmakuComment;
@@ -262,6 +275,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ExportHistoryJsonCommand = new AsyncRelayCommand(() => ExportHistoryAsync("json"), () => FilteredHistoryEntries.Count > 0);
         ExportHistoryTextCommand = new AsyncRelayCommand(() => ExportHistoryAsync("txt"), () => FilteredHistoryEntries.Count > 0);
         ClearHistoryFiltersCommand = new RelayCommand(_ => ClearHistoryFilters(), _ => HistoryEntries.Count > 0);
+        InitializeAudioProjectFeature();
 
         _ = InitializeAsync();
     }
@@ -1812,6 +1826,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             StatusMessage = $"音频源已载入：{Path.GetFileName(inputPath)}";
             AppendLog($"音频源分析完成：{AudioProbeSummary}");
+            OnAudioSourceLoaded(inputPath);
         }
         catch (Exception ex)
         {
@@ -2151,7 +2166,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            var result = await _audioExtractionService.ExtractAsync(
+            var result = await _audioProcessingWorkflow.ExtractAsync(
                 AudioInputPath,
                 outputPath,
                 SelectedAudioFormat,
@@ -2161,17 +2176,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 AudioNormalize,
                 Settings.AudioBitrateKbps,
                 totalDurationSeconds,
-                (progress, speed) =>
-                {
-                    _ = System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                    {
-                        AudioProgress = Math.Round(progress, 2);
-                        if (!string.IsNullOrWhiteSpace(speed) && !string.Equals(speed, "done", StringComparison.OrdinalIgnoreCase))
-                        {
-                            AudioSpeed = speed;
-                        }
-                    });
-                },
+                new Progress<WorkflowProgress>(OnAudioWorkflowProgress),
                 _audioExtractionCancellationTokenSource.Token);
 
             if (result.Success)
@@ -2247,11 +2252,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            var segments = await _audioExtractionService.DetectSilenceAsync(
+            var segments = await _audioProcessingWorkflow.DetectSilenceAsync(
                 AudioInputPath,
                 SelectedAudioTrack?.Index,
                 threshold,
                 minimumDuration,
+                new Progress<WorkflowProgress>(OnAudioWorkflowProgress),
                 CancellationToken.None);
 
             foreach (var segment in segments)
@@ -3737,7 +3743,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task StartQueueAsync()
+    private async Task StartQueueLegacyAsync()
     {
         if (IsRunning || IsAudioExtracting || IsAudioSilenceDetecting || IsClipRunning || IsDouyinExporting)
         {
@@ -5554,6 +5560,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             clear.NotifyCanExecuteChanged();
         }
+
+        NotifyAudioProjectCommandStateChanged();
     }
 
     private void OnJobsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)

@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="AnimeTranscoder.Cli/AnimeTranscoder.Cli.csproj" />
+  <Project Path="AnimeTranscoder.Core/AnimeTranscoder.Core.csproj" />
+  <Project Path="AnimeTranscoder.csproj" />
+  <Project Path="AnimeTranscoder.Tests/AnimeTranscoder.Tests.csproj" />
+</Solution>

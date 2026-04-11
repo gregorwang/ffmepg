@@ -1,3 +1,4 @@
+using AnimeTranscoder.Composition;
 using AnimeTranscoder.Services;
 using AnimeTranscoder.ViewModels;
 using MessageBox = System.Windows.MessageBox;
@@ -10,45 +11,7 @@ public partial class MainWindow : System.Windows.Window
     {
         InitializeComponent();
 
-        var ffmpegCommandBuilder = new FfmpegCommandBuilder();
-        var ffprobeService = new FfprobeService();
-        var taskHistoryService = new TaskHistoryService();
-        var nativeMediaCoreService = new NativeMediaCoreService();
-        var directoryWatchService = new DirectoryWatchService();
-        var ffmpegRunner = new FfmpegRunner(ffmpegCommandBuilder);
-        var overlayFramePreviewService = new OverlayFramePreviewService(ffmpegCommandBuilder);
-        var storagePreflightService = new StoragePreflightService();
-        var danmakuCacheService = new DanmakuCacheService();
-        var danmakuAssGeneratorService = new DanmakuAssGeneratorService(danmakuCacheService);
-        var danmakuExclusionRuleService = new DanmakuExclusionRuleService();
-        var bilibiliBangumiClient = new BilibiliBangumiClient(danmakuCacheService);
-        DataContext = new MainViewModel(
-            new JsonSettingsService(),
-            taskHistoryService,
-            new UserDialogService(),
-            ffprobeService,
-            new SubtitleSelectionService(),
-            new HardwareDetectionService(),
-            new OutputValidationService(ffprobeService, nativeMediaCoreService),
-            storagePreflightService,
-            nativeMediaCoreService,
-            directoryWatchService,
-            ffmpegRunner,
-            new FrameInspectionService(),
-            new AudioExtractionService(ffmpegRunner, new AudioCommandBuilder()),
-            new VideoClipService(ffmpegRunner, new ClipCommandBuilder()),
-            new DouyinExportService(ffmpegRunner, new DouyinCommandBuilder()),
-            new DanmakuPreparationService(
-                new AnimeEpisodeParserService(),
-                new DanmakuMappingConfigService(),
-                new BangumiMappingService(bilibiliBangumiClient),
-                new BilibiliCidResolverService(),
-                new DanmakuXmlService(danmakuCacheService),
-                danmakuAssGeneratorService),
-            new DanmakuBurnCommandBuilder(ffmpegCommandBuilder),
-            danmakuAssGeneratorService,
-            danmakuExclusionRuleService,
-            overlayFramePreviewService);
+        DataContext = new AppCompositionRoot().CreateMainViewModel();
 
         if (DataContext is MainViewModel viewModel)
         {

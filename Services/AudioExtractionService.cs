@@ -314,6 +314,85 @@ public sealed class AudioExtractionService
         }
     }
 
+    public async Task<AudioExtractionResult> ExtractWorkAudioAsync(
+        string inputPath,
+        string outputPath,
+        int? trackIndex,
+        int sampleRate,
+        Action<double, string>? onProgress,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(inputPath))
+        {
+            return new AudioExtractionResult
+            {
+                Success = false,
+                OutputPath = outputPath,
+                ErrorMessage = "输入文件不存在"
+            };
+        }
+
+        var outputDirectory = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrWhiteSpace(outputDirectory))
+        {
+            Directory.CreateDirectory(outputDirectory);
+        }
+
+        var arguments = _commandBuilder.BuildExtractWorkArguments(inputPath, outputPath, trackIndex, sampleRate);
+        double totalDurationSeconds;
+
+        try
+        {
+            var probe = await new FfprobeService().ProbeAsync(inputPath, cancellationToken);
+            totalDurationSeconds = probe?.Duration.TotalSeconds ?? 0d;
+        }
+        catch
+        {
+            totalDurationSeconds = 0d;
+        }
+
+        try
+        {
+            var result = await _runner.RunAsync(
+                arguments,
+                totalDurationSeconds,
+                onProgress,
+                line => AppFileLogger.Write("AudioWorkExtraction", line),
+                cancellationToken);
+
+            return result.Success
+                ? new AudioExtractionResult
+                {
+                    Success = true,
+                    OutputPath = outputPath
+                }
+                : new AudioExtractionResult
+                {
+                    Success = false,
+                    OutputPath = outputPath,
+                    ErrorMessage = result.ErrorMessage
+                };
+        }
+        catch (OperationCanceledException)
+        {
+            return new AudioExtractionResult
+            {
+                Success = false,
+                OutputPath = outputPath,
+                ErrorMessage = "已取消"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new AudioExtractionResult
+            {
+                Success = false,
+                OutputPath = outputPath,
+                ErrorMessage = ex.Message
+            };
+        }
+    }
+
     private static void ParseSilenceLine(
         string line,
         ref double? currentSilenceStart,
