@@ -3,6 +3,7 @@ obj/
 dist/
 .tmp-covercheck/
 scratch/
+yotei.m4a
 *.log
 build_*.txt
 build_output.txt

@@ -26,6 +26,23 @@ public sealed class CliProgramTests
     }
 
     [Fact]
+    public void ParseOptions_TranscriptGenerateParsesChunkingFlags()
+    {
+        var options = InvokePrivateStatic<Dictionary<string, string?>>("ParseOptions", (object)new[]
+        {
+            "--project", "demo.atproj",
+            "--chunk-duration", "1200",
+            "--chunk-overlap", "3.5",
+            "--resume-partials", "false"
+        });
+
+        Assert.Equal("demo.atproj", options["project"]);
+        Assert.Equal("1200", options["chunk-duration"]);
+        Assert.Equal("3.5", options["chunk-overlap"]);
+        Assert.Equal("false", options["resume-partials"]);
+    }
+
+    [Fact]
     public async Task Main_MissingRequiredArgumentReturnsValidationError()
     {
         var exitCode = await InvokeMainAsync(["probe"]);
@@ -92,6 +109,33 @@ public sealed class CliProgramTests
     }
 
     [Fact]
+    public void ParseOptions_VideoRenderSelectionParsesAllFlags()
+    {
+        var options = InvokePrivateStatic<Dictionary<string, string?>>(
+            "ParseOptions",
+            (object)new[]
+            {
+                "--project", "demo.atproj",
+                "--output", "cut.mp4",
+                "--include-audio", "true",
+                "--encoder", "libx264",
+                "--nvenc-preset", "p5",
+                "--cq", "23",
+                "--audio-bitrate", "160",
+                "--progress", "jsonl"
+            });
+
+        Assert.Equal("demo.atproj", options["project"]);
+        Assert.Equal("cut.mp4", options["output"]);
+        Assert.Equal("true", options["include-audio"]);
+        Assert.Equal("libx264", options["encoder"]);
+        Assert.Equal("p5", options["nvenc-preset"]);
+        Assert.Equal("23", options["cq"]);
+        Assert.Equal("160", options["audio-bitrate"]);
+        Assert.Equal("jsonl", options["progress"]);
+    }
+
+    [Fact]
     public async Task Main_TranscodeQueueMissingSpecReturnsValidationError()
     {
         var exitCode = await InvokeMainAsync(["transcode", "queue", "--spec", "missing.json"]);
@@ -132,7 +176,10 @@ public sealed class CliProgramTests
   "modelPath": "config.bin",
   "language": "ja",
   "threads": 2,
-  "extraArgs": "--config-flag"
+  "extraArgs": "--config-flag",
+  "chunkDurationSeconds": 900,
+  "chunkOverlapSeconds": 4.5,
+  "resumePartialResults": false
 }
 """);
 
@@ -153,7 +200,10 @@ public sealed class CliProgramTests
                     ["model"] = "cli.bin",
                     ["language"] = "en",
                     ["threads"] = "8",
-                    ["extra-args"] = "--cli-flag"
+                    ["extra-args"] = "--cli-flag",
+                    ["chunk-duration"] = "1200",
+                    ["chunk-overlap"] = "1.5",
+                    ["resume-partials"] = "true"
                 },
                 projectPath);
 
@@ -162,6 +212,9 @@ public sealed class CliProgramTests
             Assert.Equal("en", options.Language);
             Assert.Equal(8, options.Threads);
             Assert.Equal("--cli-flag", options.ExtraArgs);
+            Assert.Equal(1200, options.ChunkDurationSeconds);
+            Assert.Equal(1.5d, options.ChunkOverlapSeconds, 3);
+            Assert.True(options.ResumePartialResults);
         }
         finally
         {
@@ -180,6 +233,42 @@ public sealed class CliProgramTests
         var resolvedPath = InvokePrivateStatic<string>("ResolveProjectPathArgument", workspace.PathFor("project"));
 
         Assert.Equal(Path.GetFullPath(projectFilePath), resolvedPath);
+    }
+
+    [Fact]
+    public void ResolveVideoEncoderMode_RejectsUnknownValue()
+    {
+        var exception = Assert.Throws<TargetInvocationException>(() =>
+            InvokePrivateStatic<string>("ResolveVideoEncoderMode", "vp9"));
+
+        Assert.IsType<ArgumentException>(exception.InnerException);
+    }
+
+    [Fact]
+    public void BuildClipConcatSegments_ConvertsIntervalsToSequentialSegments()
+    {
+        var segments = InvokePrivateStatic<List<ClipConcatSegment>>(
+            "BuildClipConcatSegments",
+            new List<(double Start, double End)>
+            {
+                (1.25d, 2.75d),
+                (10d, 12.5d)
+            });
+
+        Assert.Collection(
+            segments,
+            first =>
+            {
+                Assert.Equal(1, first.Sequence);
+                Assert.Equal(TimeSpan.FromSeconds(1.25d), first.Start);
+                Assert.Equal(TimeSpan.FromSeconds(1.5d), first.Duration);
+            },
+            second =>
+            {
+                Assert.Equal(2, second.Sequence);
+                Assert.Equal(TimeSpan.FromSeconds(10d), second.Start);
+                Assert.Equal(TimeSpan.FromSeconds(2.5d), second.Duration);
+            });
     }
 
     private static async Task<int> InvokeMainAsync(string[] args)

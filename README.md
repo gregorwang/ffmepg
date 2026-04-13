@@ -42,6 +42,7 @@ Windows 原生桌面工具骨架，目标是把 `mkv` 动漫视频转成：
 
 - `bin\\Debug\\net8.0-windows\\AnimeTranscoder.exe`
 - `bin\\Release\\net8.0-windows\\AnimeTranscoder.exe`
+- `AnimeTranscoder.Cli\\bin\\Debug\\net8.0-windows\\AnimeTranscoder.Cli.exe`
 - `dist\\AnimeTranscoder-win-x64\\AnimeTranscoder.exe`（运行发布脚本后生成）
 
 本目录可直接执行：
@@ -49,8 +50,81 @@ Windows 原生桌面工具骨架，目标是把 `mkv` 动漫视频转成：
 ```powershell
 dotnet restore
 dotnet build
-dotnet run
+dotnet test
+dotnet run --project .\AnimeTranscoder.csproj
+dotnet run --project .\AnimeTranscoder.Cli\AnimeTranscoder.Cli.csproj -- help
 ```
+
+## 项目结构
+
+当前仓库已经拆成三层：
+
+- `AnimeTranscoder.csproj`
+  - 现有 `WPF` 桌面程序
+- `AnimeTranscoder.Core/AnimeTranscoder.Core.csproj`
+  - 共享模型、服务、工作流与协议
+- `AnimeTranscoder.Cli/AnimeTranscoder.Cli.csproj`
+  - 独立命令行入口
+
+根目录的 `dotnet build` / `dotnet test` 现在通过 `AnimeTranscoder.slnx` 执行。
+
+## CLI 能力
+
+当前 CLI 已支持以下基础命令：
+
+- `probe --input <path>`
+- `audio extract --input <path> --output <path>`
+- `audio detect-silence --input <path>`
+- `project init --input <path> --project <path.atproj>`
+- `audio export-work --project <path.atproj>`
+- `transcript import --project <path.atproj> --input <transcript.json>`
+- `selection import --project <path.atproj> --input <selection.json>`
+- `audio render-selection --project <path.atproj> --output <path>`
+
+示例：
+
+```powershell
+dotnet run --project .\AnimeTranscoder.Cli\AnimeTranscoder.Cli.csproj -- probe --input .\scratch\cli-smoke\sample.mp4
+
+dotnet run --project .\AnimeTranscoder.Cli\AnimeTranscoder.Cli.csproj -- project init `
+  --input .\scratch\cli-smoke\sample.mp4 `
+  --project .\scratch\cli-smoke\demo.atproj
+```
+
+`*.atproj` 当前只保存：
+
+- 输入媒体路径
+- 工作目录
+- 工作音频路径
+- transcript / selection 文件路径
+- 当前状态与时间戳
+
+它不会内嵌 transcript 或 selection 正文。
+
+## GUI 音频项目能力
+
+当前 `WPF` 音频页已经接入共享 workflow，并支持一条最小音频项目链路：
+
+- 选择音频源
+- 创建或加载 `*.atproj`
+- 导出工作音频
+- 导入 `transcript.json`
+- 导入 `selection.json`
+- 按选择结果渲染输出
+
+这条 GUI 链路与 CLI 共用同一个 `Core` 工作流层：
+
+- `AudioProcessingWorkflow`
+- `ProjectAudioWorkflow`
+
+## GUI 主转码队列能力
+
+当前主转码队列也已经接入共享 workflow：
+
+- GUI 入口仍然是原有队列按钮和列表
+- `MainViewModel` 通过 `TranscodeQueueWorkflow` 调用共享主链路
+- 叠加素材准备目前仍由 GUI 侧注入，避免在这一阶段强行迁移 `DanmakuPreparationService`
+- 旧的内联队列实现仍保留为回滚路径
 
 ## Release 出包
 

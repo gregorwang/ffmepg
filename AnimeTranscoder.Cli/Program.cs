@@ -65,6 +65,7 @@ internal static class Program
             "project" => await HandleProjectAsync(args[1..], services, cancellationToken),
             "transcript" => await HandleTranscriptAsync(args[1..], services, cancellationToken),
             "selection" => await HandleSelectionAsync(args[1..], services, cancellationToken),
+            "video" => await HandleVideoAsync(args[1..], services, cancellationToken),
             "transcode" => await HandleTranscodeAsync(args[1..], services, cancellationToken),
             "help" or "--help" or "-h" => HandleHelp(),
             _ => throw new ArgumentException($"未知命令：{args[0]}")
@@ -301,7 +302,7 @@ internal static class Program
     private static async Task<int> HandleTranscriptGenerateAsync(string[] args, ServiceContainer services, CancellationToken cancellationToken)
     {
         var options = ParseOptions(args);
-        ValidateOptions(options, ["project", "whisper-exe", "model", "language", "threads", "extra-args", "progress"]);
+        ValidateOptions(options, ["project", "whisper-exe", "model", "language", "threads", "extra-args", "chunk-duration", "chunk-overlap", "resume-partials", "progress"]);
 
         var projectPath = ResolveProjectPathArgument(GetRequiredOption(options, "project"));
         var whisperOptions = ResolveWhisperOptions(options, projectPath);
@@ -341,6 +342,101 @@ internal static class Program
         });
 
         return CliExitCodes.Success;
+    }
+
+    private static async Task<int> HandleVideoAsync(string[] args, ServiceContainer services, CancellationToken cancellationToken)
+    {
+        if (args.Length == 0)
+        {
+            throw new ArgumentException("video 命令缺少子命令。");
+        }
+
+        return args[0].ToLowerInvariant() switch
+        {
+            "render-selection" => await HandleVideoRenderSelectionAsync(args[1..], services, cancellationToken),
+            _ => throw new ArgumentException($"未知 video 子命令：{args[0]}")
+        };
+    }
+
+    private static async Task<int> HandleVideoRenderSelectionAsync(string[] args, ServiceContainer services, CancellationToken cancellationToken)
+    {
+        var options = ParseOptions(args);
+        ValidateOptions(options, ["project", "output", "include-audio", "encoder", "nvenc-preset", "cq", "audio-bitrate", "progress"]);
+
+        var projectPath = ResolveProjectPathArgument(GetRequiredOption(options, "project"));
+        var outputPath = GetRequiredOption(options, "output");
+        var includeAudio = GetOptionalBool(options, "include-audio") ?? true;
+        var encoderMode = ResolveVideoEncoderMode(GetOptionalString(options, "encoder"));
+        var defaultSettings = AppSettings.CreateDefault(Environment.CurrentDirectory);
+        var nvencPreset = GetOptionalString(options, "nvenc-preset") ?? defaultSettings.NvencPreset;
+        var cq = GetOptionalInt(options, "cq") ?? defaultSettings.Cq;
+        var audioBitrateKbps = GetOptionalInt(options, "audio-bitrate") ?? defaultSettings.AudioBitrateKbps;
+        var progressReporter = CreateProgressReporter(options);
+
+        var project = await services.ProjectFileService.LoadAsync(projectPath, cancellationToken);
+        if (string.IsNullOrWhiteSpace(project.TranscriptPath))
+        {
+            throw new InvalidOperationException("项目中缺少 transcript 路径，请先生成或导入 transcript。");
+        }
+
+        if (string.IsNullOrWhiteSpace(project.SelectionPath))
+        {
+            throw new InvalidOperationException("项目中缺少 selection 路径，请先导入 selection。");
+        }
+
+        var transcript = await services.TranscriptDocumentService.LoadAsync(project.TranscriptPath, cancellationToken);
+        var selection = await services.SelectionDocumentService.LoadAsync(project.SelectionPath, cancellationToken);
+        var keepIntervals = AudioSelectionRenderService.ResolveKeepIntervals(transcript, selection);
+        var segments = BuildClipConcatSegments(keepIntervals);
+
+        if (segments.Count == 0)
+        {
+            WriteJson(new
+            {
+                success = false,
+                outputPath = Path.GetFullPath(outputPath),
+                errorMessage = "Selection 没有可保留的视频片段"
+            });
+            return CliExitCodes.Failure;
+        }
+
+        var hardware = await services.HardwareDetectionService.DetectAsync(cancellationToken);
+        var videoEncoder = services.HardwareDetectionService.ResolveVideoEncoder(encoderMode, hardware.IsNvencAvailable);
+        var totalDurationSeconds = segments.Sum(item => item.Duration.TotalSeconds);
+
+        var result = await services.VideoClipService.ConcatAsync(
+            project.InputPath,
+            outputPath,
+            segments,
+            includeAudio,
+            videoEncoder,
+            nvencPreset,
+            cq,
+            audioBitrateKbps,
+            totalDurationSeconds,
+            (progressValue, speed) => progressReporter?.Report(new WorkflowProgress
+            {
+                Stage = "video.render-selection",
+                ProgressPercent = progressValue,
+                Speed = speed,
+                Message = "正在按选择结果渲染视频"
+            }),
+            cancellationToken);
+
+        WriteJson(new
+        {
+            success = result.Success,
+            outputPath = Path.GetFullPath(result.OutputPath),
+            errorMessage = result.ErrorMessage,
+            includeAudio,
+            encoderMode,
+            videoEncoder,
+            isNvencAvailable = hardware.IsNvencAvailable,
+            segmentCount = segments.Count,
+            totalDurationSeconds = Math.Round(totalDurationSeconds, 3)
+        });
+
+        return ResolveExitCode(result.ErrorMessage, result.Success);
     }
 
     private static async Task<int> HandleTranscodeAsync(string[] args, ServiceContainer services, CancellationToken cancellationToken)
@@ -432,6 +528,7 @@ internal static class Program
         var transcriptDocumentService = new TranscriptDocumentService();
         var selectionDocumentService = new SelectionDocumentService();
         var audioSelectionRenderService = new AudioSelectionRenderService(ffmpegRunner, ffprobeService);
+        var videoClipService = new VideoClipService(ffmpegRunner, new ClipCommandBuilder());
         var whisperCliAdapter = new WhisperCliAdapter(audioExtractionService);
         var nativeMediaCoreService = new NativeMediaCoreService();
         var outputValidationService = new OutputValidationService(ffprobeService, nativeMediaCoreService);
@@ -446,6 +543,7 @@ internal static class Program
             AudioProcessingWorkflow = audioProcessingWorkflow,
             ProjectFileService = projectFileService,
             TranscriptDocumentService = transcriptDocumentService,
+            SelectionDocumentService = selectionDocumentService,
             MediaProbeWorkflow = new MediaProbeWorkflow(ffprobeService),
             HardwareDetectionService = hardwareDetectionService,
             ProjectAudioWorkflow = new ProjectAudioWorkflow(
@@ -456,6 +554,7 @@ internal static class Program
                 audioSelectionRenderService,
                 ffprobeService,
                 whisperCliAdapter),
+            VideoClipService = videoClipService,
             TranscodeQueueWorkflow = new TranscodeQueueWorkflow(
                 outputValidationService,
                 storagePreflightService,
@@ -832,7 +931,16 @@ internal static class Program
                 GetOptionalString(options, "extra-args"),
                 config.ExtraArgs,
                 Environment.GetEnvironmentVariable("WHISPER_EXTRA_ARGS"),
-                string.Empty) ?? string.Empty
+                string.Empty) ?? string.Empty,
+            ChunkDurationSeconds = GetOptionalInt(options, "chunk-duration")
+                ?? config.ChunkDurationSeconds
+                ?? 1800,
+            ChunkOverlapSeconds = GetOptionalDouble(options, "chunk-overlap")
+                ?? config.ChunkOverlapSeconds
+                ?? 2d,
+            ResumePartialResults = GetOptionalBool(options, "resume-partials")
+                ?? config.ResumePartialResults
+                ?? true
         };
     }
 
@@ -861,6 +969,46 @@ internal static class Program
         }
 
         throw new ArgumentException($"项目目录中存在多个 .atproj 文件，无法确定要使用哪个：{absolutePath}");
+    }
+
+    private static string ResolveVideoEncoderMode(string? encoderMode)
+    {
+        if (string.IsNullOrWhiteSpace(encoderMode))
+        {
+            return "auto";
+        }
+
+        return encoderMode.ToLowerInvariant() switch
+        {
+            "auto" => "auto",
+            "h264_nvenc" => "h264_nvenc",
+            "libx264" => "libx264",
+            _ => throw new ArgumentException($"参数 --encoder 的值无效：{encoderMode}")
+        };
+    }
+
+    private static List<ClipConcatSegment> BuildClipConcatSegments(IReadOnlyList<(double Start, double End)> keepIntervals)
+    {
+        var segments = new List<ClipConcatSegment>(keepIntervals.Count);
+
+        for (var index = 0; index < keepIntervals.Count; index++)
+        {
+            var interval = keepIntervals[index];
+            var durationSeconds = interval.End - interval.Start;
+            if (durationSeconds <= 0d)
+            {
+                continue;
+            }
+
+            segments.Add(new ClipConcatSegment
+            {
+                Sequence = index + 1,
+                Start = TimeSpan.FromSeconds(interval.Start),
+                Duration = TimeSpan.FromSeconds(durationSeconds)
+            });
+        }
+
+        return segments;
     }
 
     private static WhisperConfigFile LoadWhisperConfig(string projectPath)
@@ -935,9 +1083,10 @@ Commands:
   project show --project <path.atproj>
   audio export-work --project <path.atproj> [--track <n>] [--sample-rate 16000] [--progress jsonl]
   transcript import --project <path.atproj> --input <transcript.json>
-  transcript generate --project <project-dir> [--whisper-exe <path>] [--model <path>] [--language ja] [--threads 4] [--extra-args "..."] [--progress jsonl]
+  transcript generate --project <project-dir> [--whisper-exe <path>] [--model <path>] [--language ja] [--threads 4] [--extra-args "..."] [--chunk-duration 1800] [--chunk-overlap 2] [--resume-partials true|false] [--progress jsonl]
   selection import --project <path.atproj> --input <selection.json>
   audio render-selection --project <path.atproj> --output <path> [--mode PreserveTimeline|Concat] [--progress jsonl]
+  video render-selection --project <path.atproj> --output <path.mp4> [--include-audio true|false] [--encoder auto|h264_nvenc|libx264] [--nvenc-preset p4] [--cq 21] [--audio-bitrate 192] [--progress jsonl]
   transcode run --input <path> --output <path> [--preset default] [--no-overlay] [--progress jsonl]
   transcode queue --spec <spec.json> [--progress jsonl]
 
@@ -954,9 +1103,11 @@ Whisper config priority:
         public required AudioProcessingWorkflow AudioProcessingWorkflow { get; init; }
         public required ProjectFileService ProjectFileService { get; init; }
         public required TranscriptDocumentService TranscriptDocumentService { get; init; }
+        public required SelectionDocumentService SelectionDocumentService { get; init; }
         public required MediaProbeWorkflow MediaProbeWorkflow { get; init; }
         public required HardwareDetectionService HardwareDetectionService { get; init; }
         public required ProjectAudioWorkflow ProjectAudioWorkflow { get; init; }
+        public required VideoClipService VideoClipService { get; init; }
         public required TranscodeQueueWorkflow TranscodeQueueWorkflow { get; init; }
     }
 
@@ -967,6 +1118,9 @@ Whisper config priority:
         public string Language { get; init; } = string.Empty;
         public int? Threads { get; init; }
         public string ExtraArgs { get; init; } = string.Empty;
+        public int? ChunkDurationSeconds { get; init; }
+        public double? ChunkOverlapSeconds { get; init; }
+        public bool? ResumePartialResults { get; init; }
     }
 
     private sealed class TranscodeQueueSpecDocument

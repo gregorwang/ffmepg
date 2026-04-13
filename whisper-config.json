@@ -1,0 +1,7 @@
+{
+  "ExecutablePath": "C:\\Users\\汪家俊\\anime\\AnimeTranscoder\\tools\\whisper-cuda\\cublas-12.4\\Release\\whisper-cli.exe",
+  "ModelPath": "C:\\Users\\汪家俊\\Downloads\\whisper-bin-x64\\Release\\ggml-large-v3-turbo.bin",
+  "Language": "auto",
+  "Threads": 4,
+  "ExtraArgs": ""
+}

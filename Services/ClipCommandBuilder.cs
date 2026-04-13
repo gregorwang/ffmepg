@@ -435,15 +435,9 @@ public sealed class ClipCommandBuilder
         return args;
     }
 
-    public IReadOnlyList<string> BuildConcatArguments(
-        string inputPath,
-        string outputPath,
+    public string BuildConcatFilterComplex(
         IReadOnlyList<ClipConcatSegment> segments,
-        bool includeAudio,
-        string videoEncoder,
-        string nvencPreset,
-        int cq,
-        int audioBitrateKbps)
+        bool includeAudio)
     {
         ArgumentNullException.ThrowIfNull(segments);
 
@@ -473,6 +467,28 @@ public sealed class ClipCommandBuilder
 
         var audioOutputLabel = includeAudio ? "[aout]" : string.Empty;
         filterParts.Add($"{concatInputs}concat=n={segments.Count}:v=1:a={(includeAudio ? 1 : 0)}[vout]{audioOutputLabel}");
+        return string.Join(';', filterParts);
+    }
+
+    public IReadOnlyList<string> BuildConcatArguments(
+        string inputPath,
+        string outputPath,
+        IReadOnlyList<ClipConcatSegment> segments,
+        bool includeAudio,
+        string videoEncoder,
+        string nvencPreset,
+        int cq,
+        int audioBitrateKbps,
+        string? filterComplexScriptPath = null)
+    {
+        ArgumentNullException.ThrowIfNull(segments);
+
+        if (segments.Count == 0)
+        {
+            throw new ArgumentException("至少需要一个待拼接片段。", nameof(segments));
+        }
+
+        var filterComplex = BuildConcatFilterComplex(segments, includeAudio);
 
         var args = new List<string>
         {
@@ -482,12 +498,24 @@ public sealed class ClipCommandBuilder
             "-progress",
             "pipe:1",
             "-i",
-            inputPath,
-            "-filter_complex",
-            string.Join(';', filterParts),
+            inputPath
+        };
+
+        if (string.IsNullOrWhiteSpace(filterComplexScriptPath))
+        {
+            args.Add("-filter_complex");
+            args.Add(filterComplex);
+        }
+        else
+        {
+            args.Add("-filter_complex_script");
+            args.Add(filterComplexScriptPath);
+        }
+
+        args.AddRange([
             "-map",
             "[vout]"
-        };
+        ]);
 
         if (includeAudio)
         {
@@ -608,6 +636,26 @@ public sealed class ClipCommandBuilder
             $"freezedetect=n={FormatSeconds(noiseThreshold)}:d={FormatSeconds(minimumDuration)}",
             "-an",
             "-sn",
+            "-f",
+            "null",
+            "-"
+        ];
+    }
+
+    public IReadOnlyList<string> BuildVolumeAnalysisArguments(
+        string inputPath,
+        double windowSeconds)
+    {
+        var resetFrames = Math.Max((int)(windowSeconds * 25), 1);
+        return
+        [
+            "-hide_banner",
+            "-i",
+            inputPath,
+            "-map",
+            "0:a:0",
+            "-af",
+            $"astats=metadata=1:reset={resetFrames},ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-",
             "-f",
             "null",
             "-"

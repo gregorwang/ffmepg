@@ -164,7 +164,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ProjectFileService projectFileService,
         TranscriptDocumentService transcriptDocumentService,
         SelectionDocumentService selectionDocumentService,
-        ProjectAudioWorkflow projectAudioWorkflow)
+        ProjectAudioWorkflow projectAudioWorkflow,
+        HighlightScoringService highlightScoringService)
     {
         _settingsService = settingsService;
         _taskHistoryService = taskHistoryService;
@@ -276,6 +277,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ExportHistoryTextCommand = new AsyncRelayCommand(() => ExportHistoryAsync("txt"), () => FilteredHistoryEntries.Count > 0);
         ClearHistoryFiltersCommand = new RelayCommand(_ => ClearHistoryFilters(), _ => HistoryEntries.Count > 0);
         InitializeAudioProjectFeature();
+        InitializeHighlightFeature(highlightScoringService);
 
         _ = InitializeAsync();
     }
@@ -5897,6 +5899,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _clipCancellationTokenSource?.Dispose();
         _douyinExportCancellationTokenSource?.Cancel();
         _douyinExportCancellationTokenSource?.Dispose();
+        _highlightCancellationTokenSource?.Cancel();
+        _highlightCancellationTokenSource?.Dispose();
         _directoryWatchService.Dispose();
     }
 }

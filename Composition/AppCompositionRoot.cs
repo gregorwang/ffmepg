@@ -38,13 +38,16 @@ public sealed class AppCompositionRoot
         var projectFileService = new ProjectFileService();
         var transcriptDocumentService = new TranscriptDocumentService();
         var selectionDocumentService = new SelectionDocumentService();
+        var whisperCliAdapter = new WhisperCliAdapter(audioExtractionService);
         var projectAudioWorkflow = new ProjectAudioWorkflow(
             projectFileService,
             transcriptDocumentService,
             selectionDocumentService,
             audioExtractionService,
             new AudioSelectionRenderService(ffmpegRunner, ffprobeService),
-            ffprobeService);
+            ffprobeService,
+            whisperCliAdapter);
+        var highlightScoringService = new HighlightScoringService();
 
         return new MainViewModel(
             new JsonSettingsService(),
@@ -78,6 +81,7 @@ public sealed class AppCompositionRoot
             projectFileService,
             transcriptDocumentService,
             selectionDocumentService,
-            projectAudioWorkflow);
+            projectAudioWorkflow,
+            highlightScoringService);
     }
 }

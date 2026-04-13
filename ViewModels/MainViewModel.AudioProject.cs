@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Windows.Input;
 using AnimeTranscoder.Infrastructure;
 using AnimeTranscoder.Models;
@@ -13,6 +15,14 @@ public sealed partial class MainViewModel
     private readonly SelectionDocumentService _selectionDocumentService;
     private readonly ProjectAudioWorkflow _projectAudioWorkflow;
     private readonly AudioProcessingWorkflow _audioProcessingWorkflow;
+    private static readonly JsonSerializerOptions WhisperConfigJsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true,
+        Converters = { new JsonStringEnumConverter() }
+    };
+
+    private CancellationTokenSource? _transcriptGenerationCancellationTokenSource;
     private string _audioProjectPath = string.Empty;
     private string _audioProjectStatusSummary = "尚未创建或加载音频项目";
     private string _audioProjectWorkingAudioPath = string.Empty;
@@ -20,6 +30,14 @@ public sealed partial class MainViewModel
     private string _audioProjectSelectionPath = string.Empty;
     private AnimeProjectFile? _loadedAudioProject;
     private AudioRenderMode _selectedAudioRenderMode = AudioRenderMode.PreserveTimeline;
+    private string _whisperExePath = string.Empty;
+    private string _whisperModelPath = string.Empty;
+    private string _whisperLanguage = "auto";
+    private string _whisperThreadsText = "4";
+    private string _whisperExtraArgs = string.Empty;
+    private bool _isTranscriptGenerating;
+    private double _transcriptGenerationProgress;
+    private string _transcriptGenerationStatusMessage = string.Empty;
 
     public ICommand CreateAudioProjectCommand { get; private set; } = null!;
     public ICommand LoadAudioProjectCommand { get; private set; } = null!;
@@ -28,6 +46,10 @@ public sealed partial class MainViewModel
     public ICommand ImportAudioSelectionCommand { get; private set; } = null!;
     public ICommand RenderAudioSelectionCommand { get; private set; } = null!;
     public ICommand OpenAudioProjectDirectoryCommand { get; private set; } = null!;
+    public ICommand GenerateTranscriptCommand { get; private set; } = null!;
+    public ICommand CancelTranscriptGenerationCommand { get; private set; } = null!;
+    public ICommand ChooseWhisperExeCommand { get; private set; } = null!;
+    public ICommand ChooseWhisperModelCommand { get; private set; } = null!;
 
     public string AudioProjectPath
     {
@@ -72,6 +94,69 @@ public sealed partial class MainViewModel
         set => SetProperty(ref _selectedAudioRenderMode, value);
     }
 
+    public string WhisperExePath
+    {
+        get => _whisperExePath;
+        set => SetProperty(ref _whisperExePath, value);
+    }
+
+    public string WhisperModelPath
+    {
+        get => _whisperModelPath;
+        set => SetProperty(ref _whisperModelPath, value);
+    }
+
+    public string WhisperLanguage
+    {
+        get => _whisperLanguage;
+        set => SetProperty(ref _whisperLanguage, value);
+    }
+
+    public string WhisperThreadsText
+    {
+        get => _whisperThreadsText;
+        set => SetProperty(ref _whisperThreadsText, value);
+    }
+
+    public string WhisperExtraArgs
+    {
+        get => _whisperExtraArgs;
+        set => SetProperty(ref _whisperExtraArgs, value);
+    }
+
+    public bool IsTranscriptGenerating
+    {
+        get => _isTranscriptGenerating;
+        private set
+        {
+            if (SetProperty(ref _isTranscriptGenerating, value))
+            {
+                NotifyCommandStateChanged();
+                NotifyAudioProjectCommandStateChanged();
+            }
+        }
+    }
+
+    public double TranscriptGenerationProgress
+    {
+        get => _transcriptGenerationProgress;
+        private set
+        {
+            if (SetProperty(ref _transcriptGenerationProgress, value))
+            {
+                RaisePropertyChanged(nameof(TranscriptGenerationProgressText));
+            }
+        }
+    }
+
+    public string TranscriptGenerationProgressText => $"{TranscriptGenerationProgress:F0}%";
+
+    public string TranscriptGenerationStatusMessage
+    {
+        get => _transcriptGenerationStatusMessage;
+        private set => SetProperty(ref _transcriptGenerationStatusMessage, value);
+    }
+
     private void InitializeAudioProjectFeature()
     {
         CreateAudioProjectCommand = new AsyncRelayCommand(CreateAudioProjectAsync, CanCreateAudioProject);
@@ -81,6 +166,11 @@ public sealed partial class MainViewModel
         ImportAudioSelectionCommand = new AsyncRelayCommand(ImportAudioSelectionAsync, CanImportAudioSelection);
         RenderAudioSelectionCommand = new AsyncRelayCommand(RenderAudioSelectionAsync, CanRenderAudioSelection);
         OpenAudioProjectDirectoryCommand = new RelayCommand(_ => OpenAudioProjectDirectory(), _ => _loadedAudioProject is not null && Directory.Exists(_loadedAudioProject.WorkingDirectory));
+        GenerateTranscriptCommand = new AsyncRelayCommand(GenerateTranscriptAsync, CanGenerateTranscript);
+        CancelTranscriptGenerationCommand = new RelayCommand(_ => CancelTranscriptGeneration(), _ => IsTranscriptGenerating);
+        ChooseWhisperExeCommand = new RelayCommand(_ => ChooseWhisperExe(), _ => !IsTranscriptGenerating);
+        ChooseWhisperModelCommand = new RelayCommand(_ => ChooseWhisperModel(), _ => !IsTranscriptGenerating);
+        LoadWhisperConfig();
     }
 
     private void NotifyAudioProjectCommandStateChanged()
@@ -121,6 +211,26 @@ public sealed partial class MainViewModel
         if (OpenAudioProjectDirectoryCommand is RelayCommand openProjectDirectory)
         {
             openProjectDirectory.NotifyCanExecuteChanged();
+        }
+
+        if (GenerateTranscriptCommand is AsyncRelayCommand generate)
+        {
+            generate.NotifyCanExecuteChanged();
+        }
+
+        if (CancelTranscriptGenerationCommand is RelayCommand cancelGenerate)
+        {
+            cancelGenerate.NotifyCanExecuteChanged();
+        }
+
+        if (ChooseWhisperExeCommand is RelayCommand chooseExe)
+        {
+            chooseExe.NotifyCanExecuteChanged();
+        }
+
+        if (ChooseWhisperModelCommand is RelayCommand chooseModel)
+        {
+            chooseModel.NotifyCanExecuteChanged();
         }
     }
 
@@ -466,5 +576,250 @@ public sealed partial class MainViewModel
     private static string BuildAudioProjectStatusSummary(AnimeProjectFile project, string prefix)
     {
         return $"{prefix} | 状态 {project.Status} | 工作目录 {project.WorkingDirectory}";
+    }
+
+    private bool CanGenerateTranscript()
+    {
+        return !IsRunning
+            && !IsAudioExtracting
+            && !IsAudioSilenceDetecting
+            && !IsClipRunning
+            && !IsDouyinExporting
+            && !IsTranscriptGenerating
+            && HasLoadedAudioProject
+            && IsAudioProjectAligned
+            && !string.IsNullOrWhiteSpace(AudioProjectWorkingAudioPath)
+            && File.Exists(AudioProjectWorkingAudioPath)
+            && !string.IsNullOrWhiteSpace(WhisperExePath)
+            && !string.IsNullOrWhiteSpace(WhisperModelPath);
+    }
+
+    private async Task GenerateTranscriptAsync()
+    {
+        if (!CanGenerateTranscript())
+        {
+            return;
+        }
+
+        if (!int.TryParse(WhisperThreadsText, out var threads) || threads < 0)
+        {
+            threads = 0;
+        }
+
+        var options = new WhisperOptions
+        {
+            ExecutablePath = WhisperExePath,
+            ModelPath = WhisperModelPath,
+            Language = string.IsNullOrWhiteSpace(WhisperLanguage) ? "auto" : WhisperLanguage,
+            Threads = threads,
+            ExtraArgs = WhisperExtraArgs ?? string.Empty
+        };
+
+        TranscriptGenerationProgress = 0;
+        TranscriptGenerationStatusMessage = "正在生成 Transcript...";
+        AudioStatusMessage = "正在生成 Transcript (Whisper)";
+        StatusMessage = "正在生成 Transcript";
+        IsTranscriptGenerating = true;
+        _transcriptGenerationCancellationTokenSource = new CancellationTokenSource();
+
+        try
+        {
+            var progress = new Progress<double>(value =>
+            {
+                TranscriptGenerationProgress = Math.Round(value, 2);
+                TranscriptGenerationStatusMessage = $"Whisper 识别中... {value:F0}%";
+            });
+
+            var project = await _projectAudioWorkflow.GenerateTranscriptAsync(
+                AudioProjectPath,
+                options,
+                progress,
+                _transcriptGenerationCancellationTokenSource.Token);
+
+            var transcript = await _transcriptDocumentService.LoadAsync(project.TranscriptPath);
+            await ReloadCurrentAudioProjectAsync($"Transcript 已生成，共 {transcript.Segments.Count} 条 segment");
+            TranscriptGenerationProgress = 100;
+            TranscriptGenerationStatusMessage = $"Transcript 生成完成！共 {transcript.Segments.Count} 条 segment";
+            AudioStatusMessage = "Transcript 生成完成";
+            StatusMessage = "Transcript 生成完成";
+            AppendLog($"Transcript 生成完成：{project.TranscriptPath} | 条数 {transcript.Segments.Count}");
+            SaveWhisperConfig();
+        }
+        catch (OperationCanceledException)
+        {
+            TranscriptGenerationStatusMessage = "Transcript 生成已取消";
+            AudioStatusMessage = "Transcript 生成已取消";
+            StatusMessage = "Transcript 生成已取消";
+            AppendLog("Transcript 生成已取消。");
+        }
+        catch (Exception ex)
+        {
+            TranscriptGenerationStatusMessage = $"Transcript 生成失败：{ex.Message}";
+            AudioStatusMessage = $"Transcript 生成失败：{ex.Message}";
+            StatusMessage = "Transcript 生成失败";
+            AppendLog($"Transcript 生成异常：{ex.Message}");
+            AppFileLogger.Write("TranscriptGenerate", $"异常：{ex}");
+        }
+        finally
+        {
+            IsTranscriptGenerating = false;
+            _transcriptGenerationCancellationTokenSource?.Dispose();
+            _transcriptGenerationCancellationTokenSource = null;
+            NotifyCommandStateChanged();
+            NotifyAudioProjectCommandStateChanged();
+        }
+    }
+
+    private void CancelTranscriptGeneration()
+    {
+        _transcriptGenerationCancellationTokenSource?.Cancel();
+        TranscriptGenerationStatusMessage = "正在取消...";
+    }
+
+    private void ChooseWhisperExe()
+    {
+        var path = _userDialogService.PickFile(
+            "选择 Whisper 可执行文件",
+            "可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*",
+            string.IsNullOrWhiteSpace(WhisperExePath) ? Environment.CurrentDirectory : Path.GetDirectoryName(WhisperExePath) ?? Environment.CurrentDirectory);
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            WhisperExePath = path;
+            NotifyAudioProjectCommandStateChanged();
+        }
+    }
+
+    private void ChooseWhisperModel()
+    {
+        var path = _userDialogService.PickFile(
+            "选择 Whisper 模型文件",
+            "GGML 模型 (*.bin)|*.bin|所有文件 (*.*)|*.*",
+            string.IsNullOrWhiteSpace(WhisperModelPath) ? Environment.CurrentDirectory : Path.GetDirectoryName(WhisperModelPath) ?? Environment.CurrentDirectory);
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            WhisperModelPath = path;
+            NotifyAudioProjectCommandStateChanged();
+        }
+    }
+
+    private void LoadWhisperConfig()
+    {
+        var configPaths = new[]
+        {
+            Path.Combine(Environment.CurrentDirectory, "whisper-config.json"),
+            Path.Combine(ToolPathResolver.ResolveWorkspaceRoot(), "whisper-config.json")
+        }.Distinct(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var configPath in configPaths)
+        {
+            if (!File.Exists(configPath))
+            {
+                continue;
+            }
+
+            try
+            {
+                var json = File.ReadAllText(configPath);
+                var config = JsonSerializer.Deserialize<WhisperGuiConfigFile>(json, WhisperConfigJsonOptions);
+                if (config is null)
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(config.ExecutablePath))
+                {
+                    WhisperExePath = config.ExecutablePath;
+                }
+
+                if (!string.IsNullOrWhiteSpace(config.ModelPath))
+                {
+                    WhisperModelPath = config.ModelPath;
+                }
+
+                if (!string.IsNullOrWhiteSpace(config.Language))
+                {
+                    WhisperLanguage = config.Language;
+                }
+
+                if (config.Threads.HasValue)
+                {
+                    WhisperThreadsText = config.Threads.Value.ToString();
+                }
+
+                if (!string.IsNullOrWhiteSpace(config.ExtraArgs))
+                {
+                    WhisperExtraArgs = config.ExtraArgs;
+                }
+
+                AppFileLogger.Write("WhisperConfig", $"已从 {configPath} 加载 Whisper 配置");
+                return;
+            }
+            catch (Exception ex)
+            {
+                AppFileLogger.Write("WhisperConfig", $"读取 whisper-config.json 失败：{configPath} | {ex.Message}");
+            }
+        }
+
+        // Fallback: environment variables
+        var envExe = Environment.GetEnvironmentVariable("WHISPER_EXE_PATH");
+        if (!string.IsNullOrWhiteSpace(envExe))
+        {
+            WhisperExePath = envExe;
+        }
+
+        var envModel = Environment.GetEnvironmentVariable("WHISPER_MODEL_PATH");
+        if (!string.IsNullOrWhiteSpace(envModel))
+        {
+            WhisperModelPath = envModel;
+        }
+
+        var envLang = Environment.GetEnvironmentVariable("WHISPER_LANGUAGE");
+        if (!string.IsNullOrWhiteSpace(envLang))
+        {
+            WhisperLanguage = envLang;
+        }
+
+        var envThreads = Environment.GetEnvironmentVariable("WHISPER_THREADS");
+        if (!string.IsNullOrWhiteSpace(envThreads) && int.TryParse(envThreads, out var threads))
+        {
+            WhisperThreadsText = threads.ToString();
+        }
+    }
+
+    private void SaveWhisperConfig()
+    {
+        try
+        {
+            var config = new WhisperGuiConfigFile
+            {
+                ExecutablePath = WhisperExePath,
+                ModelPath = WhisperModelPath,
+                Language = WhisperLanguage,
+                Threads = int.TryParse(WhisperThreadsText, out var t) && t > 0 ? t : null,
+                ExtraArgs = WhisperExtraArgs
+            };
+            var json = JsonSerializer.Serialize(config, WhisperConfigJsonOptions);
+            var configPath = Path.Combine(Environment.CurrentDirectory, "whisper-config.json");
+            File.WriteAllText(configPath, json);
+            AppFileLogger.Write("WhisperConfig", $"已保存 Whisper 配置到 {configPath}");
+        }
+        catch (Exception ex)
+        {
+            AppFileLogger.Write("WhisperConfig", $"保存 whisper-config.json 失败：{ex.Message}");
+        }
+    }
+
+    private sealed class WhisperGuiConfigFile
+    {
+        [JsonPropertyName("executablePath")]
+        public string ExecutablePath { get; init; } = string.Empty;
+        [JsonPropertyName("modelPath")]
+        public string ModelPath { get; init; } = string.Empty;
+        [JsonPropertyName("language")]
+        public string Language { get; init; } = string.Empty;
+        [JsonPropertyName("threads")]
+        public int? Threads { get; init; }
+        [JsonPropertyName("extraArgs")]
+        public string ExtraArgs { get; init; } = string.Empty;
     }
 }

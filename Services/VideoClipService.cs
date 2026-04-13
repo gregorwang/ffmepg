@@ -348,6 +348,19 @@ public sealed class VideoClipService
             Directory.CreateDirectory(outputDirectory);
         }
 
+        string? filterScriptPath = null;
+        var filterComplex = _commandBuilder.BuildConcatFilterComplex(segments, includeAudio);
+        if (filterComplex.Length >= 7000)
+        {
+            var scriptDirectory = string.IsNullOrWhiteSpace(outputDirectory)
+                ? Path.GetTempPath()
+                : outputDirectory;
+            filterScriptPath = Path.Combine(
+                scriptDirectory,
+                $"{Path.GetFileNameWithoutExtension(outputPath)}.concat-filter.{Guid.NewGuid():N}.txt");
+            await File.WriteAllTextAsync(filterScriptPath, filterComplex, cancellationToken);
+        }
+
         var arguments = _commandBuilder.BuildConcatArguments(
             inputPath,
             outputPath,
@@ -356,7 +369,8 @@ public sealed class VideoClipService
             videoEncoder,
             nvencPreset,
             cq,
-            audioBitrateKbps);
+            audioBitrateKbps,
+            filterScriptPath);
 
         AppFileLogger.Write("VideoClipService", $"开始片段拼接: {Path.GetFileName(inputPath)} -> {Path.GetFileName(outputPath)} | segments={segments.Count} includeAudio={includeAudio} encoder={videoEncoder}");
         AppFileLogger.Write("VideoClipService", $"ffmpeg {string.Join(' ', arguments)}");
@@ -416,6 +430,19 @@ public sealed class VideoClipService
                 OutputPath = outputPath,
                 ErrorMessage = ex.Message
             };
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(filterScriptPath) && File.Exists(filterScriptPath))
+            {
+                try
+                {
+                    File.Delete(filterScriptPath);
+                }
+                catch
+                {
+                }
+            }
         }
     }
 
@@ -1040,5 +1067,144 @@ public sealed class VideoClipService
             EndSeconds = Math.Max(freezeEnd, 0),
             DurationSeconds = Math.Max(freezeDuration, 0)
         });
+    }
+
+    private static readonly Regex VolumeTimeRegex = new(@"pts_time:(?\u003ctime\u003e-?\d+(\.\d+)?)", RegexOptions.Compiled);
+    private static readonly Regex VolumeLevelRegex = new(@"lavfi\.astats\.Overall\.RMS_level=(?<level>-?\d+(\.\d+)?|-inf)", RegexOptions.Compiled);
+
+    public async Task<IReadOnlyList<VolumeSegment>> DetectVolumeSegmentsAsync(
+        string inputPath,
+        double windowSeconds,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(inputPath))
+        {
+            throw new FileNotFoundException("输入文件不存在", inputPath);
+        }
+
+        var arguments = _commandBuilder.BuildVolumeAnalysisArguments(inputPath, windowSeconds);
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ToolPathResolver.ResolveFfmpegPath(),
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = new Process { StartInfo = startInfo };
+        process.Start();
+
+        using var registration = cancellationToken.Register(() =>
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+            catch
+            {
+            }
+        });
+
+        var samples = new List<(double Time, double Level)>();
+        double? pendingTime = null;
+
+        var stdoutTask = Task.Run(async () =>
+        {
+            while (!process.StandardOutput.EndOfStream)
+            {
+                var line = await process.StandardOutput.ReadLineAsync();
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                var timeMatch = VolumeTimeRegex.Match(line);
+                if (timeMatch.Success &&
+                    double.TryParse(timeMatch.Groups["time"].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var time))
+                {
+                    pendingTime = time;
+                    continue;
+                }
+
+                var levelMatch = VolumeLevelRegex.Match(line);
+                if (levelMatch.Success && pendingTime.HasValue)
+                {
+                    var levelText = levelMatch.Groups["level"].Value;
+                    var level = string.Equals(levelText, "-inf", StringComparison.OrdinalIgnoreCase)
+                        ? double.NegativeInfinity
+                        : double.TryParse(levelText, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+                            ? parsed
+                            : double.NegativeInfinity;
+
+                    samples.Add((pendingTime.Value, level));
+                    pendingTime = null;
+                }
+            }
+        }, cancellationToken);
+
+        var stderrTask = Task.Run(async () =>
+        {
+            while (!process.StandardError.EndOfStream)
+            {
+                var line = await process.StandardError.ReadLineAsync();
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    AppFileLogger.Write("VolumeAnalysis", line);
+                }
+            }
+        }, cancellationToken);
+
+        await Task.WhenAll(stdoutTask, stderrTask, process.WaitForExitAsync());
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (samples.Count == 0)
+        {
+            AppFileLogger.Write("VolumeAnalysis", "未获取到音量数据，可能没有音轨。");
+            return [];
+        }
+
+        var segments = new List<VolumeSegment>();
+        var windowStart = 0d;
+
+        while (windowStart < samples[^1].Time)
+        {
+            var windowEnd = windowStart + windowSeconds;
+            var windowSamples = samples
+                .Where(s => s.Time >= windowStart && s.Time < windowEnd)
+                .Select(s => s.Level)
+                .Where(l => !double.IsNegativeInfinity(l))
+                .ToList();
+
+            var meanDb = windowSamples.Count > 0
+                ? windowSamples.Average()
+                : double.NegativeInfinity;
+            var peakDb = windowSamples.Count > 0
+                ? windowSamples.Max()
+                : double.NegativeInfinity;
+
+            segments.Add(new VolumeSegment
+            {
+                StartSeconds = windowStart,
+                EndSeconds = windowEnd,
+                MeanVolumeDb = meanDb,
+                PeakVolumeDb = peakDb
+            });
+
+            windowStart = windowEnd;
+        }
+
+        AppFileLogger.Write("VolumeAnalysis", $"音量分析完成：{segments.Count} 个窗口，采样点 {samples.Count}");
+        return segments;
     }
 }
