@@ -13,3 +13,30 @@ last_log.txt
 nav_check.txt
 tab_search.txt
 boundaries.txt
+
+# Python/runtime generated files
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Local heavyweight media and subtitle artifacts
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.wav
+*.mp3
+*.srt
+*.ass
+*.vtt
+
+# Local binary/tool bundles
+*.whl
+tools/whisper-cuda/
+tools/whisper-vad/
+GameSubtitleOCR/.venv/
+GameSubtitleOCR/gpu_deps/
+GameSubtitleOCR/runs/
+GameSubtitleOCR/cusparse.json
+GameSubtitleOCR/nvrtc.json
